@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 final class AppModel: ObservableObject {
     static let tokenAccount = "oura-personal-access-token"
+    static let ringKeyAccount = "oura-ring-auth-key"
 
     @Published private(set) var database = Database()
     @Published private(set) var scores: [Day: DayScores] = [:]
@@ -15,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var warnings: [String] = []
     @Published var selectedDay: Day = .today
+    @Published var importReport: ExportImporter.Report?
 
     /// Backed by UserDefaults by hand rather than `@AppStorage`: inside an ObservableObject
     /// `@AppStorage` does not publish, so the root view would not swap away from onboarding.
@@ -101,6 +103,37 @@ final class AppModel: ObservableObject {
         Keychain.delete(account: Self.tokenAccount)
         hasToken = false
         hasCompletedOnboarding = false
+    }
+
+    // MARK: - Data export import
+
+    /// Imports an official Oura data-export file (ZIP, CSV or JSON). Needs no token and no
+    /// membership; exported rows only fill days the API has not already provided.
+    func importExport(at url: URL) async {
+        let current = database
+        do {
+            let outcome = try await Task.detached(priority: .userInitiated) { () -> (Database, ExportImporter.Report) in
+                var working = current
+                let report = try ExportImporter.importFile(at: url, into: &working)
+                return (working, report)
+            }.value
+
+            try await store.save(outcome.0)
+            database = outcome.0
+            importReport = outcome.1
+            recomputeScores()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    // MARK: - Ring auth key
+
+    var ringKey: String { Keychain.get(account: Self.ringKeyAccount) ?? "" }
+
+    func saveRingKey(_ key: String) {
+        Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.ringKeyAccount)
+        objectWillChange.send()
     }
 
     func eraseAllData() async {

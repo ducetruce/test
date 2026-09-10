@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 private struct ExportFile: Identifiable {
     let url: URL
@@ -10,6 +11,7 @@ struct SettingsView: View {
     @State private var exportFile: ExportFile?
     @State private var showingEraseConfirmation = false
     @State private var showingTokenSheet = false
+    @State private var showingImporter = false
 
     var body: some View {
         NavigationStack {
@@ -61,6 +63,46 @@ struct SettingsView: View {
                     Button("Sign out", role: .destructive) { model.signOut() }
                 }
 
+                Section {
+                    Button {
+                        showingImporter = true
+                    } label: {
+                        Label("Import Oura data export", systemImage: "square.and.arrow.down")
+                    }
+                    if let report = model.importReport {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Imported \(report.totalImported) days from \(report.files.count) file(s)")
+                                .font(.footnote)
+                            if report.skippedExisting > 0 {
+                                Text("\(report.skippedExisting) rows already covered by API data")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !report.unmappedColumns.isEmpty {
+                                Text("Unrecognised columns: \(report.unmappedColumns.sorted().joined(separator: ", "))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Import")
+                } footer: {
+                    Text("Request your export at membership.ouraring.com/data-export. No token or membership needed — exported days only fill gaps the API has not already covered.")
+                }
+
+                Section {
+                    NavigationLink {
+                        RingSyncView()
+                    } label: {
+                        Label("Sync directly from ring", systemImage: "dot.radiowaves.left.and.right")
+                    }
+                } header: {
+                    Text("Advanced")
+                } footer: {
+                    Text("Reads the ring's history over Bluetooth with no cloud involved. Requires the ring's 16-byte auth key, which has to be extracted from the official app.")
+                }
+
                 Section("Data") {
                     Button {
                         Task { exportFile = await model.exportData().map(ExportFile.init) }
@@ -92,6 +134,19 @@ struct SettingsView: View {
                 }
                 .padding()
                 .presentationDetents([.height(180)])
+            }
+            .fileImporter(
+                isPresented: $showingImporter,
+                allowedContentTypes: [.zip, .commaSeparatedText, .json],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    Task { await model.importExport(at: url) }
+                case .failure(let error):
+                    model.errorMessage = error.localizedDescription
+                }
             }
             .sheet(isPresented: $showingTokenSheet) {
                 TokenEntrySheet()

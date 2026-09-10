@@ -33,32 +33,58 @@ Not affiliated with, endorsed by, or supported by Ōura Health Oy.
   and it holds the auth key if you later go the BLE route. OpenRing replaces the app you
   *look* at, not the sync path.
 
-## Going further: direct BLE
+## Three ways to get your data in
 
-If you want to cut the cloud out entirely, the sequence is:
+**1. Oura cloud API (default).** Paste a personal access token; the app downloads 180 days on
+first sync and keeps a permanent local copy. Works from an unmodified iPhone.
 
-1. Pair the ring with the official app (this is what generates the auth key).
-2. Extract the 16-byte key from the app's Realm database — `open_oura` ships
-   `tools/android_oura_key_extract.py` for a rooted Android device. From an iPhone this needs
-   jailbreak tooling or a BLE sniffer, which is why it is not the default path here.
-3. Reimplement the GATT layout and packet framing against CoreBluetooth in Swift, using
-   `open_oura`'s `docs/` as the protocol reference.
+**2. Data export import.** Request your export at
+[membership.ouraring.com/data-export](https://membership.ouraring.com/data-export) and import
+the `.zip`, `.csv` or `.json` from Settings → Import. No token, no membership — this is your
+data-portability export. Exported days only fill gaps the API has not already covered, so
+importing can never clobber synced data.
 
-Note that `open_oura` currently ships **no LICENSE file**, so its Rust code is all-rights-
-reserved by default. Read it as a specification, don't paste it.
+The export format has changed over the years, so the importer canonicalises column names
+through a synonym table, infers whether durations are seconds/minutes/hours per row, and
+**reports every column it did not recognise**. If your export has columns it does not know,
+that list is the thing to send along — adding them is a one-line change in `Field.synonyms`.
 
-## What you get
+**3. Direct BLE from the ring (Settings → Advanced → Sync directly from ring).** Reads the
+ring's own history-event stream with no cloud involved.
 
-| | |
-|---|---|
-| **Today** | Three score rings, the contributor breakdown behind each one, and the night's highlights |
-| **Sleep** | Hypnogram, stage split, nightly heart-rate and HRV curves, 14-night history |
-| **Activity** | Steps, calories against target, intensity split, MET curve, workouts |
-| **Trends** | Nine metrics over 7/30/90/180 days with period average |
-| **Settings** | Token management, full re-sync, JSON export, local erase, scoring explainer |
+### What the BLE path needs, and how far it goes
 
-Everything renders from the local database, so the app works with no network. A background
-refresh keeps last night ready before you open it.
+It needs the ring's **16-byte auth key**. The key is generated when the official Oura app
+first pairs with the ring and lives in that app's encrypted database. There is no master key
+and it cannot be derived. Getting it means ADB on a rooted Android device, jailbreak tooling
+on iOS, or sniffing the pairing exchange. That is the honest cost of this route, and it is
+why the cloud API stays the default.
+
+Implemented in full, from the published protocol notes:
+
+- GATT service/characteristic discovery and frame reassembly across notifications
+  (`tag | length | payload`)
+- The nonce challenge: request nonce → AES-128-ECB encrypt with your key → authenticate
+- Stream setup, time sync, data flush
+- The paged drain: `GetEvent(cursor)` → collect frames → acknowledge with a zero-event
+  request → advance the cursor → repeat until the `0x11` summary reports zero bytes left
+  (silence is explicitly *not* treated as completion)
+- Batches of 64 events so a dropped connection costs one batch, not the whole drain
+
+Deliberately **not** implemented: most per-tag event body layouts, which are not publicly
+documented. Rather than guess at byte offsets, the app decodes only what has published
+scaling rules — skin temperature (`int16 / 100` °C), activity MET (the 0.1/0.2 split at 128)
+and green-LED inter-beat intervals — classifies every other tag into a family, and keeps all
+of them byte-for-byte in a capture you can export. Pair a capture with the same day's cloud
+data and the unknown bodies become mappable; that is the intended next step, not a gap I have
+papered over.
+
+There is also a packet log on that screen showing every frame in and out, because untested
+hardware code is only worth shipping if you can see what it is doing.
+
+Protocol facts came from [`Th0rgal/open_oura`](https://github.com/Th0rgal/open_oura)'s `docs/`.
+That repository ships **no LICENSE file**, so its code is all-rights-reserved by default:
+this is an independent Swift implementation of the documented format, not a port.
 
 ## Build and install
 
@@ -124,10 +150,12 @@ OpenRing/
   App/         App entry, AppModel (single source of truth), background refresh
   Models/      Day, Series, SleepPeriod, ActivityDay, …
   Networking/  Oura v2 client and wire types
-  Scoring/     Curves and ScoreEngine — the local replacement for cloud scoring
+  Scoring/     Curves and ScoreEngine — scoring that needs no proprietary models
   Storage/     Keychain, JSON database, sync engine
+  Import/      Dependency-free ZIP reader, CSV parser, export importer
+  Ring/        BLE protocol, CoreBluetooth transport, drain orchestration, event decoding
   Views/       SwiftUI screens and components
-OpenRingTests/ Scoring behaviour and JSON key-mapping tests
+OpenRingTests/ Scoring, JSON key mapping, BLE framing, ZIP/CSV import
 ```
 
 Data lives in one JSON file in Application Support, written atomically. Export it any time
@@ -135,6 +163,9 @@ from Settings; erasing local data never touches your Oura account.
 
 ## Ideas if you want to extend it
 
+- **Map the remaining event tags.** Drain a day over BLE, export the capture, and line the
+  unknown bodies up against the same day from the API. Each one solved is a field that no
+  longer needs the cloud at all.
 - Write the computed scores into HealthKit so other apps can read them.
 - Notifications when readiness drops sharply against your baseline.
 - A widget or Watch complication for today's readiness.

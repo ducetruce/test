@@ -29,6 +29,8 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>OpenRing connects directly to your ring over Bluetooth to download its history without going through Oura's cloud.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
