@@ -1,35 +1,51 @@
 # OpenRing
 
 A local iOS app for your Oura ring data. It keeps a full copy of your data on your phone and
-**computes Sleep, Readiness and Activity scores on-device**, so the numbers keep working
-whether or not Oura's cloud is still scoring your account.
+**computes Sleep, Readiness and Activity scores on-device**, so you get scored metrics without
+depending on the official app's proprietary scoring models.
 
 Not affiliated with, endorsed by, or supported by Ōura Health Oy.
 
 ---
 
-## Read this first: what a local app can and cannot do
+## Read this first: how the data gets here
 
-Being honest about the boundaries, because they shape what this app is:
+- **This app reads from Oura's cloud API, using a personal access token you generate.** The
+  ring syncs to Oura's servers via the official Oura app; OpenRing downloads from the API and
+  keeps a permanent local copy. That is the path that works from an unmodified iPhone today.
+- **Talking to the ring directly over BLE is possible, but not from an iPhone alone.** The
+  Gen 3/4/5 protocol has been reverse-engineered — see
+  [`Th0rgal/open_oura`](https://github.com/Th0rgal/open_oura) (Rust) and
+  [`LogosIsLife/open_ring`](https://github.com/LogosIsLife/open_ring) (Python). The blocker is
+  authentication: reading battery, live heart rate or the history-event stream needs the
+  ring's 16-byte app-auth key, there is no master key, and the key is generated during
+  first pairing with the official app and stored in its encrypted database. Getting it out
+  means ADB/root on Android, jailbreak tooling on iOS, or sniffing the pairing exchange.
+  See *Going further: direct BLE* below.
+- **The 0-100 scores are not on the ring.** Per open_oura's reversing, Readiness / Sleep /
+  Activity / Stress are computed by the official app's own engine and a set of proprietary
+  on-device PyTorch models — which are not published, and are not something a third-party app
+  can obtain. So there is no version of this project, cloud or BLE, that gets Oura's exact
+  scores. Any local app has to score the raw signals itself, which is what
+  [`ScoreEngine.swift`](OpenRing/Scoring/ScoreEngine.swift) does. Where the API still returns
+  Oura's number, it is shown next to ours for comparison.
+- **Keep the official Oura app installed.** It carries data from ring to cloud over Bluetooth,
+  and it holds the auth key if you later go the BLE route. OpenRing replaces the app you
+  *look* at, not the sync path.
 
-- **The ring itself is not readable directly.** Oura's Bluetooth protocol is undocumented and
-  the payloads are encrypted. There is no supported way for a third-party app to pull raw
-  samples off the ring. Every open-source Oura project, including this one, goes through
-  Oura's cloud API.
-- **So this app needs a personal access token.** The ring syncs to Oura's servers via the
-  official Oura app on your phone; OpenRing then downloads your data from the Oura API with a
-  token you generate yourself, and stores it locally forever.
-- **What this replaces is the paywalled analysis, not the ring's cloud.** If your membership
-  lapses, the cloud may stop returning computed scores. OpenRing does not depend on those:
-  it derives its own scores from the raw signals (sleep staging, heart rate, HRV, temperature
-  deviation, MET minutes), which are what you actually paid a subscription to have
-  interpreted. Where Oura still returns a score, it is shown alongside as a comparison.
-- **Keep the official Oura app installed.** It is what carries data from the ring to the
-  cloud over Bluetooth. OpenRing replaces the app you *look* at, not the sync path.
+## Going further: direct BLE
 
-Whether a lapsed membership still returns full data on your account is something only your
-account can tell you — connect a token and see. Everything the API does return is stored and
-scored locally.
+If you want to cut the cloud out entirely, the sequence is:
+
+1. Pair the ring with the official app (this is what generates the auth key).
+2. Extract the 16-byte key from the app's Realm database — `open_oura` ships
+   `tools/android_oura_key_extract.py` for a rooted Android device. From an iPhone this needs
+   jailbreak tooling or a BLE sniffer, which is why it is not the default path here.
+3. Reimplement the GATT layout and packet framing against CoreBluetooth in Swift, using
+   `open_oura`'s `docs/` as the protocol reference.
+
+Note that `open_oura` currently ships **no LICENSE file**, so its Rust code is all-rights-
+reserved by default. Read it as a specification, don't paste it.
 
 ## What you get
 
