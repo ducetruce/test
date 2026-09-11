@@ -10,7 +10,8 @@ struct TodayView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 18) {
+                    dashboardHeader
                     DayStrip(selection: $model.selectedDay, days: model.recentDays(14, endingAt: Day.today))
 
                     if dayScores.sleep == nil && dayScores.readiness == nil && dayScores.activity == nil {
@@ -22,11 +23,19 @@ struct TodayView: View {
                                 : "Add your Oura personal access token in Settings to start syncing."
                         )
                     } else {
-                        ringRow
-                        ForEach(ScoreKind.allCases, id: \.self) { kind in
-                            if let score = score(for: kind) {
-                                breakdownCard(score)
-                            }
+                        scoreCarousel
+                        if let signal = dailySignal {
+                            DailySignalCard(
+                                title: signal.contributor.rounded < 70
+                                    ? "Worth watching: \(signal.contributor.label)"
+                                    : "Steady signal: \(signal.contributor.label)",
+                                detail: signal.contributor.detail,
+                                score: signal.contributor.rounded,
+                                tint: Theme.color(for: signal.kind)
+                            )
+                        }
+                        if let expandedKind, let expandedScore = score(for: expandedKind) {
+                            breakdownCard(expandedScore)
                         }
                         highlights
                         napsAndWorkouts
@@ -34,9 +43,9 @@ struct TodayView: View {
                 }
                 .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle(Format.dayLabel(day))
-            .navigationBarTitleDisplayMode(.large)
+            .background(Theme.canvas)
+            .navigationTitle("Overview")
+            .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.sync() }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -55,18 +64,60 @@ struct TodayView: View {
         }
     }
 
-    private var ringRow: some View {
-        HStack(spacing: 12) {
-            ForEach(ScoreKind.allCases, id: \.self) { kind in
-                ScoreRingView(score: score(for: kind)?.value, kind: kind)
-                    .frame(height: 108)
+    private var dashboardHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(Format.dayLabel(day))
+                    .font(.largeTitle.weight(.bold))
+                Text(syncStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if day == Day.today {
+                Image(systemName: model.isSyncing ? "arrow.triangle.2.circlepath" : "checkmark.icloud")
+                    .foregroundStyle(model.isSyncing ? Color.accentColor : Color.secondary)
+                    .accessibilityHidden(true)
             }
         }
-        .padding(.vertical, 4)
+    }
+
+    private var syncStatus: String {
+        if model.isSyncing { return "Updating your data…" }
+        if let lastSync = model.lastSync { return "Last updated \(Format.relative(lastSync))" }
+        return "Not synced yet"
+    }
+
+    private var scoreCarousel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Your scores")
+                .font(.headline)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(ScoreKind.allCases, id: \.self) { kind in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                expandedKind = expandedKind == kind ? nil : kind
+                            }
+                        } label: {
+                            ScoreSummaryCard(score: score(for: kind), kind: kind)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shows the score contributors")
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+        }
     }
 
     private func breakdownCard(_ score: Score) -> some View {
-        SectionCard(score.kind.title, subtitle: subtitle(for: score)) {
+        SectionCard(
+            "\(score.kind.title) details",
+            subtitle: subtitle(for: score),
+            symbol: "list.bullet.rectangle",
+            tint: Theme.color(for: score.kind)
+        ) {
             VStack(spacing: 14) {
                 if score.isPartial {
                     Label(
@@ -77,23 +128,16 @@ struct TodayView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                ForEach(visibleContributors(of: score)) { contributor in
+                ForEach(score.contributors) { contributor in
                     ContributorRow(contributor: contributor)
                 }
-                if score.contributors.count > 3 {
-                    Button(expandedKind == score.kind ? "Show less" : "Show all \(score.contributors.count) contributors") {
-                        withAnimation { expandedKind = expandedKind == score.kind ? nil : score.kind }
-                    }
-                    .font(.footnote)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Close details") {
+                    withAnimation { expandedKind = nil }
                 }
+                .font(.footnote.weight(.medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-    }
-
-    private func visibleContributors(of score: Score) -> [Contributor] {
-        if expandedKind == score.kind { return score.contributors }
-        return Array(score.contributors.sorted { $0.score < $1.score }.prefix(3))
     }
 
     private func subtitle(for score: Score) -> String {
@@ -116,7 +160,7 @@ struct TodayView: View {
         let spo2 = model.database.spo2Day(day)
         let readiness = model.database.readinessDay(day)
 
-        SectionCard("Highlights") {
+        SectionCard("Highlights", subtitle: "Measurements behind today's scores", symbol: "waveform.path.ecg") {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 if let night {
                     StatTile(label: "Time asleep", value: Format.duration(night.totalSleep), caption: "\(Format.clockTime(night.bedtimeStart)) – \(Format.clockTime(night.bedtimeEnd))", tint: Theme.sleep)
@@ -235,6 +279,13 @@ struct TodayView: View {
         case .readiness: return dayScores.readiness
         case .activity: return dayScores.activity
         }
+    }
+
+    private var dailySignal: (kind: ScoreKind, contributor: Contributor)? {
+        ScoreKind.allCases
+            .compactMap { kind in score(for: kind).map { (kind, $0) } }
+            .flatMap { kind, score in score.contributors.map { (kind: kind, contributor: $0) } }
+            .min { $0.contributor.score < $1.contributor.score }
     }
 }
 

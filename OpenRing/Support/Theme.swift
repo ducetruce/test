@@ -32,5 +32,17 @@ enum Theme {
         }
     }
 
-    static let cardBackground = Color(.secondarySystemBackground)
+    static let canvas = Color(.systemGroupedBackground)
+    static let cardBackground = Color(.secondarySystemGroupedBackground)
+    static let insetBackground = Color.primary.opacity(0.055)
+    static let divider = Color.primary.opacity(0.08)
+    static let cardRadius: CGFloat = 20
+
+    static func gradient(for kind: ScoreKind) -> LinearGradient {
+        LinearGradient(
+            colors: [color(for: kind).opacity(0.24), color(for: kind).opacity(0.07)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
 }
