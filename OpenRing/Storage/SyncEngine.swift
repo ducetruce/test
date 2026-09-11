@@ -128,6 +128,19 @@ struct SyncEngine {
         if let ringInfo { database.ringInfo = ringInfo }
         database.applyCloudSleepScores(dailySleepScores)
         if let personalInfo { database.personalInfo = personalInfo }
+        // Several endpoints rejecting a token that a dozen others accept is not a broken
+        // sign-in, whatever the status code says. Saying so beats an error that sends the
+        // user to re-authorise for something re-authorising cannot fix.
+        let rejected = [cvaFailure, resilienceFailure, vo2Failure, ringFailure]
+            .compactMap { $0 }
+            .filter { $0.contains("rejected the credentials") }
+        if !rejected.isEmpty {
+            warnings.append(
+                "\(rejected.count) metric(s) were refused while the rest of the sync succeeded — "
+                + "the sign-in is working, so these are almost certainly not included in your Oura plan."
+            )
+        }
+
         database.lastSyncReports = [
             Self.report("sleep", start, today, sleep.map(\.day)),
             Self.report("daily_activity", start, today, activity.map(\.day)),

@@ -1,6 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension SettingsView {
+    /// Which build this is, so identifying one never comes down to comparing file sizes.
+    static var buildDescription: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
+    }
+}
+
 private struct ExportFile: Identifiable {
     let url: URL
     var id: String { url.absoluteString }
@@ -207,6 +217,11 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    LabeledContent("Version") {
+                        Text(Self.buildDescription)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
                     NavigationLink("How the scores are calculated") { ScoringExplainerView() }
                 } footer: {
                     Text("OpenRing is an independent personal project. It is not affiliated with, endorsed by, or supported by Ōura Health Oy, and the scores it shows are its own, not Oura's.")

@@ -63,6 +63,7 @@ actor OuraAuth: OuraTokenProviding {
     private static let keychainAccount = "oura-oauth-credentials"
 
     private var credentials: OuraCredentials?
+    private var lastRefresh: Date?
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -158,8 +159,16 @@ actor OuraAuth: OuraTokenProviding {
         return credentials.accessToken
     }
 
+    /// A sync touches a dozen endpoints. If several answer 401 — which Oura does for
+    /// metrics an account is not entitled to, not only for stale tokens — each one would
+    /// otherwise trigger its own refresh, and these refresh tokens are single use. So a
+    /// refresh that just happened is reused rather than repeated.
     func refreshedToken() async throws -> String {
-        try await refresh().accessToken
+        if let lastRefresh, Date().timeIntervalSince(lastRefresh) < 60,
+           let credentials, !credentials.isExpired {
+            return credentials.accessToken
+        }
+        return try await refresh().accessToken
     }
 
     @discardableResult
@@ -179,6 +188,7 @@ actor OuraAuth: OuraTokenProviding {
             previousRefreshToken: existing.refreshToken
         )
         store(refreshed)
+        lastRefresh = Date()
         return refreshed
     }
 

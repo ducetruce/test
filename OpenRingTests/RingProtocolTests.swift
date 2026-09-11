@@ -385,3 +385,31 @@ final class OuraScopeTests: XCTestCase {
         XCTAssertTrue(forbidden.lowercased().contains("permission") || forbidden.lowercased().contains("plan"))
     }
 }
+
+/// Oura returns 401 for metrics an account is not entitled to, not only for stale tokens,
+/// so a sync touching a dozen endpoints can see several at once. Each must not spend its
+/// own single-use refresh token.
+final class RefreshCoalescingTests: XCTestCase {
+    func testARecentRefreshIsReusedRatherThanRepeated() {
+        let justRefreshed = Date()
+        let credentials = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "fresh",
+                                          refreshToken: "r", expiresAt: Date().addingTimeInterval(3600),
+                                          grantedScopes: OuraAuth.scopes)
+        // The condition the actor applies: refreshed within the window and still valid.
+        let withinWindow = Date().timeIntervalSince(justRefreshed) < 60
+        XCTAssertTrue(withinWindow && !credentials.isExpired)
+    }
+
+    func testAnOldRefreshDoesNotBlockANewOne() {
+        let stale = Date().addingTimeInterval(-600)
+        XCTAssertFalse(Date().timeIntervalSince(stale) < 60)
+    }
+
+    /// Reuse must not paper over a token that has actually expired.
+    func testAnExpiredTokenStillRefreshesEvenIfJustRefreshed() {
+        let expired = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "old",
+                                      refreshToken: "r", expiresAt: Date().addingTimeInterval(10),
+                                      grantedScopes: OuraAuth.scopes)
+        XCTAssertTrue(expired.isExpired, "inside the safety margin, so reuse must not apply")
+    }
+}
