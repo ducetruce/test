@@ -46,21 +46,19 @@ final class DayTests: XCTestCase {
 final class ScoreEngineTests: XCTestCase {
     private let engine = ScoreEngine()
 
-    func testGoodNightScoresWellAndBadNightDoesNot() {
+    func testGoodNightScoresWellAndBadNightDoesNot() throws {
         let day = Day(year: 2026, month: 5, day: 10)
         var database = Database()
         database.sleep = [Fixtures.night(day: day, hours: 8, deepShare: 0.17, remShare: 0.22, efficiency: 94, restless: 12)]
-        let good = engine.sleepScore(for: day, in: database)
-        XCTAssertNotNil(good)
-        XCTAssertGreaterThan(good!.value, 80)
+        let good = try XCTUnwrap(engine.sleepScore(for: day, in: database))
+        XCTAssertGreaterThan(good.value, 80)
 
         database.sleep = [Fixtures.night(day: day, hours: 4.5, deepShare: 0.05, remShare: 0.07, efficiency: 68, restless: 60, latencyMinutes: 55)]
-        let bad = engine.sleepScore(for: day, in: database)
-        XCTAssertNotNil(bad)
-        XCTAssertLessThan(bad!.value, 60)
+        let bad = try XCTUnwrap(engine.sleepScore(for: day, in: database))
+        XCTAssertLessThan(bad.value, 60)
     }
 
-    func testElevatedRestingHeartRateLowersReadiness() {
+    func testElevatedRestingHeartRateLowersReadiness() throws {
         let day = Day(year: 2026, month: 5, day: 20)
         var database = Database()
         // Two weeks of steady baseline nights, then the night being scored.
@@ -75,12 +73,12 @@ final class ScoreEngineTests: XCTestCase {
         database.sleep.append(Fixtures.night(day: day, hours: 7.5, restingHR: 62, hrv: 34))
         let strained = engine.readinessScore(for: day, in: database, sleepScore: engine.sleepScore(for: day, in: database))
 
-        XCTAssertNotNil(steady)
-        XCTAssertNotNil(strained)
-        XCTAssertGreaterThan(steady!.value, strained!.value + 10)
+        let steadyScore = try XCTUnwrap(steady)
+        let strainedScore = try XCTUnwrap(strained)
+        XCTAssertGreaterThan(steadyScore.value, strainedScore.value + 10)
     }
 
-    func testMissingContributorsAreRenormalisedNotZeroed() {
+    func testMissingContributorsAreRenormalisedNotZeroed() throws {
         let day = Day(year: 2026, month: 6, day: 1)
         var database = Database()
         // A night with no HRV, no temperature and no history to build baselines from.
@@ -89,11 +87,12 @@ final class ScoreEngineTests: XCTestCase {
         sparse.lowestHeartRate = nil
         database.sleep = [sparse]
 
-        let readiness = engine.readinessScore(for: day, in: database, sleepScore: engine.sleepScore(for: day, in: database))
-        XCTAssertNotNil(readiness)
+        let readiness = try XCTUnwrap(
+            engine.readinessScore(for: day, in: database, sleepScore: engine.sleepScore(for: day, in: database))
+        )
         // Only "previous night" survives, so readiness should track the sleep score rather
         // than collapse toward zero.
-        XCTAssertGreaterThan(readiness!.value, 60)
+        XCTAssertGreaterThan(readiness.value, 60)
     }
 
     func testScoresStayInRange() {
@@ -108,7 +107,7 @@ final class ScoreEngineTests: XCTestCase {
         }
     }
 
-    func testActivityScoreRewardsHittingTheTarget() {
+    func testActivityScoreRewardsHittingTheTarget() throws {
         let day = Day(year: 2026, month: 8, day: 8)
         var database = Database()
         database.activity = [Fixtures.activity(day: day, steps: 12_000, activeCalories: 520, targetCalories: 500, sedentaryHours: 5)]
@@ -117,9 +116,9 @@ final class ScoreEngineTests: XCTestCase {
         database.activity = [Fixtures.activity(day: day, steps: 900, activeCalories: 80, targetCalories: 500, sedentaryHours: 13)]
         let missed = engine.activityScore(for: day, in: database)
 
-        XCTAssertNotNil(hit)
-        XCTAssertNotNil(missed)
-        XCTAssertGreaterThan(hit!.value, missed!.value + 20)
+        let hitScore = try XCTUnwrap(hit)
+        let missedScore = try XCTUnwrap(missed)
+        XCTAssertGreaterThan(hitScore.value, missedScore.value + 20)
     }
 }
 

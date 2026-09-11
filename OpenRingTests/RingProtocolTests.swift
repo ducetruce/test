@@ -8,26 +8,26 @@ final class RingFrameTests: XCTestCase {
         XCTAssertEqual(frame.hexDump, "28 01 00")
     }
 
-    func testGetEventsLayoutMatchesTheDocumentedStruct() {
+    func testGetEventsLayoutMatchesTheDocumentedStruct() throws {
         // start_timestamp u32 LE | max_events u8 | flags i32 LE
         let frame = RingProtocol.getEvents(from: 0x0102_0304, maxEvents: 64, flags: -1)
         XCTAssertEqual(frame.tag, 0x10)
         XCTAssertEqual(frame.payload.count, 9)
-        XCTAssertEqual(Array(frame.payload[0..<4]), [0x04, 0x03, 0x02, 0x01])
-        XCTAssertEqual(frame.payload[4], 64)
-        XCTAssertEqual(Array(frame.payload[5..<9]), [0xFF, 0xFF, 0xFF, 0xFF])
+        XCTAssertEqual(Array(frame.payload.prefix(4)), [0x04, 0x03, 0x02, 0x01])
+        XCTAssertEqual(frame.payload.dropFirst(4).first, 64)
+        XCTAssertEqual(Array(frame.payload.dropFirst(5)), [0xFF, 0xFF, 0xFF, 0xFF])
     }
 
     func testAcknowledgementAsksForZeroEvents() {
-        XCTAssertEqual(RingProtocol.acknowledge(cursor: 7).payload[4], 0)
+        XCTAssertEqual(RingProtocol.acknowledge(cursor: 7).payload.dropFirst(4).first, 0)
     }
 
-    func testReaderReassemblesFramesSplitAcrossNotifications() {
+    func testReaderReassemblesFramesSplitAcrossNotifications() throws {
         var reader = RingProtocol.FrameReader()
         XCTAssertTrue(reader.append(Data([0x11, 0x08, 0x08, 0x00])).isEmpty)
         let frames = reader.append(Data([0x9E, 0x0E, 0x00, 0x00, 0x03, 0x00]))
         XCTAssertEqual(frames.count, 1)
-        XCTAssertEqual(frames[0].tag, 0x11)
+        XCTAssertEqual(try XCTUnwrap(frames.first).tag, 0x11)
         XCTAssertEqual(reader.pendingByteCount, 0)
     }
 
@@ -35,15 +35,15 @@ final class RingFrameTests: XCTestCase {
         var reader = RingProtocol.FrameReader()
         let frames = reader.append(Data([0x25, 0x01, 0x00, 0x28, 0x01, 0x00]))
         XCTAssertEqual(frames.count, 2)
-        XCTAssertEqual(frames[0].tag, 0x25)
-        XCTAssertEqual(frames[1].tag, 0x28)
+        XCTAssertEqual(frames.first?.tag, 0x25)
+        XCTAssertEqual(frames.last?.tag, 0x28)
     }
 
     /// The worked example from the protocol notes: 8 events, 3742 bytes still queued.
-    func testEventSummaryDecodesTheDocumentedExample() {
+    func testEventSummaryDecodesTheDocumentedExample() throws {
         var reader = RingProtocol.FrameReader()
         let frames = reader.append(Data([0x11, 0x08, 0x08, 0x00, 0x9E, 0x0E, 0x00, 0x00, 0x03, 0x00]))
-        let summary = RingProtocol.eventSummary(in: try! XCTUnwrap(frames.first))
+        let summary = RingProtocol.eventSummary(in: try XCTUnwrap(frames.first))
         XCTAssertEqual(summary?.eventCount, 8)
         XCTAssertEqual(summary?.bytesLeft, 3742)
         XCTAssertEqual(summary?.isComplete, false)
@@ -118,13 +118,13 @@ final class RingFrameTests: XCTestCase {
 }
 
 final class RingEventTests: XCTestCase {
-    func testEventTakesItsTimestampFromTheFirstFourBytes() {
+    func testEventTakesItsTimestampFromTheFirstFourBytes() throws {
         // 0x66000000 = 1711276032, comfortably a Unix second count.
         let frame = RingProtocol.Frame(tag: 0x46, payload: [0x00, 0x00, 0x00, 0x66, 0xAA, 0xBB])
-        let event = try? XCTUnwrap(RingEvent.parse(frame: frame, sequence: 0))
-        XCTAssertEqual(event?.rawTimestamp, 0x6600_0000)
-        XCTAssertEqual(event?.body, [0xAA, 0xBB])
-        XCTAssertEqual(event?.timeBase, .unixSeconds)
+        let event = try XCTUnwrap(RingEvent.parse(frame: frame, sequence: 0))
+        XCTAssertEqual(event.rawTimestamp, 0x6600_0000)
+        XCTAssertEqual(event.body, [0xAA, 0xBB])
+        XCTAssertEqual(event.timeBase, .unixSeconds)
     }
 
     func testNonEventFramesAreRejected() {
@@ -157,14 +157,14 @@ final class RingEventTests: XCTestCase {
         XCTAssertEqual(times.first, end.addingTimeInterval(-60))
     }
 
-    func testTemperatureEventDecodesToPlausibleSamples() {
+    func testTemperatureEventDecodesToPlausibleSamples() throws {
         var body: [UInt8] = []
         for raw in [Int16(3510), Int16(3515), Int16(9999)] {
             body.append(UInt8(UInt16(bitPattern: raw) & 0xFF))
             body.append(UInt8(UInt16(bitPattern: raw) >> 8))
         }
         let frame = RingProtocol.Frame(tag: 0x46, payload: [0x00, 0x00, 0x00, 0x66] + body)
-        let event = RingEvent.parse(frame: frame, sequence: 0)!
+        let event = try XCTUnwrap(RingEvent.parse(frame: frame, sequence: 0))
         let samples = RingEventDecoder.samples(from: event)
         // 99.99 °C is a decode error, not a skin temperature, and is dropped.
         XCTAssertEqual(samples.count, 2)
@@ -193,7 +193,7 @@ final class FrameReaderEdgeTests: XCTestCase {
         var reader = RingProtocol.FrameReader()
         let frames = reader.append(Data([0x08, 0x00]))
         XCTAssertEqual(frames.count, 1)
-        XCTAssertTrue(frames[0].payload.isEmpty)
+        XCTAssertEqual(frames.first?.payload.isEmpty, true)
     }
 
     func testResetDropsPartialFrames() {
@@ -217,6 +217,6 @@ final class FrameReaderEdgeTests: XCTestCase {
             offset = end
         }
         XCTAssertEqual(frames.count, 1)
-        XCTAssertEqual(frames[0].payload.count, 255)
+        XCTAssertEqual(frames.first?.payload.count, 255)
     }
 }

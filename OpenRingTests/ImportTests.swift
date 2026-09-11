@@ -5,12 +5,12 @@ final class CSVParserTests: XCTestCase {
     func testParsesQuotedFieldsAndEmbeddedCommas() {
         let rows = CSVParser.rows(from: "a,b,c\n1,\"two, still two\",3\n")
         XCTAssertEqual(rows.count, 2)
-        XCTAssertEqual(rows[1], ["1", "two, still two", "3"])
+        XCTAssertEqual(rows.last, ["1", "two, still two", "3"])
     }
 
     func testHandlesEscapedQuotesAndCRLF() {
         let rows = CSVParser.rows(from: "h\r\n\"say \"\"hi\"\"\"\r\n")
-        XCTAssertEqual(rows[1], ["say \"hi\""])
+        XCTAssertEqual(rows.last, ["say \"hi\""])
     }
 
     func testRecordsAreKeyedByHeader() {
@@ -114,7 +114,7 @@ final class ZipArchiveTests: XCTestCase {
         let entries = try ZipArchive.entries(in: zip)
         XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(entries.first?.name, "trends.csv")
-        XCTAssertEqual(String(decoding: entries[1].data, as: UTF8.self), "hello")
+        XCTAssertEqual(entries.last.map { String(decoding: $0.data, as: UTF8.self) }, "hello")
     }
 
     func testRejectsNonZipData() {
