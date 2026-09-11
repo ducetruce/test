@@ -20,25 +20,22 @@ final class AppModel: ObservableObject {
 
     /// Backed by UserDefaults by hand rather than `@AppStorage`: inside an ObservableObject
     /// `@AppStorage` does not publish, so the root view would not swap away from onboarding.
-    @Published var hasCompletedOnboarding: Bool {
-        didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: Self.onboardingKey) }
+    ///
+    /// Seeded by a default-value expression rather than an initializer body: assigning to a
+    /// main-actor-isolated property from a nonisolated init is an error, while evaluating a
+    /// stored property's default is not.
+    @Published var hasCompletedOnboarding: Bool = UserDefaults.standard.bool(forKey: AppModel.onboardingKey) {
+        didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: AppModel.onboardingKey) }
     }
 
     /// Mirrors the Keychain so SwiftUI has something observable to react to.
-    @Published private(set) var hasToken: Bool
+    @Published private(set) var hasToken: Bool = !(Keychain.get(account: AppModel.tokenAccount) ?? "").isEmpty
 
     nonisolated private static let onboardingKey = "hasCompletedOnboarding"
 
     private let store = LocalStore()
     private lazy var syncEngine = SyncEngine(store: store)
     private let engine = ScoreEngine()
-
-    /// `nonisolated` so `@StateObject private var model = AppModel()` is legal in the app's
-    /// property initializer, which is not main-actor isolated.
-    nonisolated init() {
-        hasCompletedOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
-        hasToken = !(Keychain.get(account: Self.tokenAccount) ?? "").isEmpty
-    }
 
     var token: String? {
         Keychain.get(account: Self.tokenAccount)
