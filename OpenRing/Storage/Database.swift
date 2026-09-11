@@ -15,6 +15,9 @@ struct EndpointReport: Codable, Hashable, Identifiable {
     var isDaily: Bool = true
     /// Why the endpoint returned nothing, when it failed outright rather than came back empty.
     var failure: String?
+    /// Refused with a valid sign-in: the metric is outside the account's plan. A known,
+    /// permanent boundary is not a fault, and should not be dressed as one on every sync.
+    var notInPlan: Bool = false
 
     /// Set when a *daily* endpoint returned nothing for the most recent requested day.
     var missingToday: Bool
@@ -23,7 +26,7 @@ struct EndpointReport: Codable, Hashable, Identifiable {
 
     /// An endpoint that returned nothing at all is the loudest signal available, and was
     /// previously the quietest — with no newest date there was no indicator at all.
-    var returnedNothing: Bool { received == 0 }
+    var returnedNothing: Bool { received == 0 && !notInPlan }
 }
 
 /// Everything the app knows, in one Codable value. Small enough to keep in memory:

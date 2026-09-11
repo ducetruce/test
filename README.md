@@ -37,6 +37,25 @@ Not affiliated with, endorsed by, or supported by Ōura Health Oy.
   and it holds the auth key if you later go the BLE route. OpenRing replaces the app you
   *look* at, not the sync path.
 
+## What a lapsed membership actually costs
+
+Measured against a real account rather than assumed. These endpoints refuse a valid
+sign-in — Oura answers 401 for them, not 403 — and are simply outside the plan:
+
+| Metric | Recoverable? |
+|---|---|
+| Blood oxygen, breathing disturbance | **Yes, in principle** — the ring measures these, so the samples exist on the device even when the API withholds them |
+| VO₂ max | Maybe — derived, but from a comparatively simple model |
+| Resilience, cardiovascular age | No — these need Oura's proprietary models, which are not published |
+
+Everything else syncs normally: sleep and its staging, activity, readiness inputs, daytime
+stress, workouts, sessions, tags, bedtime guidance, and the raw signals the local scoring
+runs on. The app reports these as *not in plan* rather than as errors, because a boundary
+that will not change is not a fault.
+
+This is the first concrete case where the BLE path would deliver something the cloud path
+cannot: blood oxygen is sensor data the ring records and the subscription gates.
+
 ## Three ways to get your data in
 
 **1. Oura cloud API over OAuth2 (default).** Register an application, paste its client id and

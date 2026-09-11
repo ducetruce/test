@@ -71,7 +71,7 @@ struct SettingsView: View {
                                         .font(.system(.footnote, design: .monospaced))
                                     Spacer()
                                     VStack(alignment: .trailing, spacing: 2) {
-                                        Text("\(report.received) record\(report.received == 1 ? "" : "s")")
+                                        Text(report.notInPlan ? "not in plan" : "\(report.received) record\(report.received == 1 ? "" : "s")")
                                             .monospacedDigit()
                                             // Nothing at all is the loudest signal, and used
                                             // to be the quietest: no records meant no date

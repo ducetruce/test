@@ -330,3 +330,28 @@ final class LenientPageDecodingTests: XCTestCase {
         XCTAssertEqual(page.nextToken, "abc")
     }
 }
+
+final class PlanBoundaryTests: XCTestCase {
+    private func report(notInPlan: Bool) -> EndpointReport {
+        let today = Day(year: 2026, month: 9, day: 11)
+        return EndpointReport(endpoint: "daily_spo2", requestedFrom: today.adding(days: -30),
+                              requestedTo: today, received: 0, newestDay: nil, isDaily: true,
+                              failure: nil, notInPlan: notInPlan,
+                              missingToday: !notInPlan)
+    }
+
+    /// A subscription boundary is permanent and expected; rendering it as a fault every
+    /// sync teaches the reader to ignore the indicator that means something.
+    func testAPlanBoundaryIsNotTreatedAsAFault() {
+        let gated = report(notInPlan: true)
+        XCTAssertFalse(gated.returnedNothing, "not in plan should not read as an empty response")
+        XCTAssertFalse(gated.missingToday)
+        XCTAssertNil(gated.failure, "the per-endpoint error is replaced by the calmer state")
+    }
+
+    func testAGenuinelyEmptyEndpointIsStillFlagged() {
+        let empty = report(notInPlan: false)
+        XCTAssertTrue(empty.returnedNothing)
+        XCTAssertTrue(empty.missingToday)
+    }
+}

@@ -14,11 +14,15 @@ struct SyncEngine {
         _ endpoint: String, _ from: Day, _ to: Day, _ days: [Day],
         isDaily: Bool = true, failure: String? = nil
     ) -> EndpointReport {
-        EndpointReport(
+        // A refusal that survived a token refresh is an entitlement boundary, not a fault.
+        let outsidePlan = failure?.contains("sign-in is valid") ?? false
+        return EndpointReport(
             endpoint: endpoint, requestedFrom: from, requestedTo: to,
             received: days.count, newestDay: days.max(),
-            isDaily: isDaily, failure: failure,
-            missingToday: isDaily && !days.contains(to)
+            isDaily: isDaily,
+            failure: outsidePlan ? nil : failure,
+            notInPlan: outsidePlan,
+            missingToday: isDaily && !outsidePlan && !days.contains(to)
         )
     }
 
@@ -98,18 +102,24 @@ struct SyncEngine {
         let (restModes, _) = await optional { try await client.restModePeriods(from: start, to: today) }
         let (ringInfo, ringFailure) = await optional { try await client.ringInfo() }
 
+        // Endpoints outside the plan are summarised once below rather than listed
+        // individually every sync; a boundary that will not change is not news.
         for (name, failure) in [("Cardiovascular age", cvaFailure), ("Resilience", resilienceFailure),
                                 ("VO2 max", vo2Failure), ("Bedtime guidance", sleepTimeFailure),
                                 ("Guided sessions", sessionFailure), ("Tags", tagFailure),
                                 ("Ring details", ringFailure)] {
-            if let failure { warnings.append("\(name): \(failure)") }
+            if let failure, !failure.contains("sign-in is valid") {
+                warnings.append("\(name): \(failure)")
+            }
         }
 
         // An endpoint that answers with an empty list has not failed; the record count in
         // the report already says so, and a warning here would imply a fault that is not one.
         for (name, failure) in [("Blood oxygen", spo2Failure), ("Daytime stress", stressFailure),
                                 ("Workouts", workoutFailure)] {
-            if let failure { warnings.append("\(name): \(failure)") }
+            if let failure, !failure.contains("sign-in is valid") {
+                warnings.append("\(name): \(failure)")
+            }
         }
         if dailySleepScores.isEmpty { warnings.append("Oura returned no cloud sleep scores — using locally computed scores only") }
 
@@ -134,13 +144,14 @@ struct SyncEngine {
         // Several endpoints rejecting a token that a dozen others accept is not a broken
         // sign-in, whatever the status code says. Saying so beats an error that sends the
         // user to re-authorise for something re-authorising cannot fix.
-        let rejected = [cvaFailure, resilienceFailure, vo2Failure, ringFailure]
+        let outsidePlan = [cvaFailure, resilienceFailure, vo2Failure, ringFailure, spo2Failure]
             .compactMap { $0 }
             .filter { $0.contains("rejected the credentials") || $0.contains("sign-in is valid") }
-        if !rejected.isEmpty {
+            .count
+        if outsidePlan > 0 {
             warnings.append(
-                "\(rejected.count) metric(s) were refused while the rest of the sync succeeded — "
-                + "the sign-in is working, so these are almost certainly not included in your Oura plan."
+                "\(outsidePlan) metric\(outsidePlan == 1 ? " is" : "s are") outside your Oura plan and were "
+                + "skipped. Everything else synced normally — this is a subscription boundary, not a fault."
             )
         }
 
