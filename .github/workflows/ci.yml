@@ -21,9 +21,7 @@ jobs:
 
       - name: Toolchain and project sanity
         run: |
-          sw_vers
           xcodebuild -version
-          echo "--- targets, configurations and schemes ---"
           xcodebuild -list -project OpenRing.xcodeproj
 
       # Simulator names drift between runner images, so pick whatever iPhone this
@@ -38,16 +36,13 @@ jobs:
           for runtime, devices in data.items():
               if 'iOS' not in runtime:
                   continue
-              # Runtime keys look like com.apple.CoreSimulator.SimRuntime.iOS-18-2
               version = runtime.rsplit('iOS-', 1)[-1].replace('-', '.')
               try:
                   key = tuple(int(part) for part in version.split('.'))
               except ValueError:
                   key = (0,)
               for device in devices:
-                  if not device.get('isAvailable'):
-                      continue
-                  if 'iPhone' not in device.get('name', ''):
+                  if not device.get('isAvailable') or 'iPhone' not in device.get('name', ''):
                       continue
                   if best is None or key > best[0]:
                       best = (key, device['udid'], device['name'], version)
@@ -57,48 +52,39 @@ jobs:
           sys.stderr.write(f'Using {best[2]} (iOS {best[3]})\n')
           ")
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-          echo "Selected simulator $UDID"
 
+      # continue-on-error so the summary below always runs and is the LAST thing in the
+      # job log: artifact downloads redirect to blob storage that is not always reachable,
+      # so the log tail has to carry the whole diagnosis.
       - name: Build and test
+        id: xcb
+        continue-on-error: true
         run: |
           set -o pipefail
           xcodebuild test \
             -project OpenRing.xcodeproj \
             -scheme OpenRing \
             -destination "id=${{ steps.sim.outputs.udid }}" \
-            -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            | tee xcodebuild.log
+            > xcodebuild.log 2>&1
 
-      # Artifact downloads are not always reachable, so the diagnosis has to live in the
-      # job log itself — and near the end of it, where a tail will find it.
-      - name: Failure summary
-        if: failure()
+      - name: Summary
         run: |
+          if [ "${{ steps.xcb.outcome }}" = "success" ]; then
+            echo "===================== TESTS PASSED ====================="
+            grep -cE "^Test Case .* passed" xcodebuild.log | sed 's/^/passing test cases: /' || true
+            grep -E "warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -20 || true
+            echo "======================================================="
+            exit 0
+          fi
           echo "===================== COMPILE ERRORS ====================="
           grep -E "error:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -60 || true
           echo "===================== BUILD FAILURES ====================="
           grep -E "^\*\* .* \*\*|The following build commands failed|Command .* failed" xcodebuild.log | sort -u | head -20 || true
           echo "===================== TEST FAILURES ======================"
-          grep -E "Test Case .* (failed|error)|XCTAssert.* failed|Failing tests:|^\s+-\[.*\]$" xcodebuild.log | head -60 || true
-          echo "===================== WARNING SAMPLE ====================="
-          grep -E "warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -25 || true
+          grep -E "Test Case .* failed|XCTAssert.* failed|failed - |Failing tests:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | head -50 || true
+          echo "===================== WARNINGS ==========================="
+          grep -E "warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -20 || true
           echo "=========================================================="
-
-      # The raw log is what makes a failed run diagnosable after the fact.
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcodebuild-log
-          path: xcodebuild.log
-          if-no-files-found: ignore
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: TestResults.xcresult
-          if-no-files-found: ignore
+          exit 1
