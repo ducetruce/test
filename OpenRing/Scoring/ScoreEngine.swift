@@ -59,8 +59,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "total",
             label: "Total sleep",
-            score: Curve.score(hours, [(3, 10), (5, 50), (6, 75), (7, 95), (7.5, 100), (9, 100), (10, 85), (12, 60)]),
-            weight: 0.22,
+            score: Curve.score(hours, [(3, 4), (5, 18), (6, 48), (7, 66), (7.5, 88), (9, 100), (10, 100), (12, 100)]),
+            weight: 0.31,
             detail: Format.duration(night.totalSleep)
         ))
 
@@ -68,8 +68,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "efficiency",
             label: "Efficiency",
-            score: Curve.score(efficiency, [(60, 10), (75, 50), (85, 80), (90, 95), (95, 100), (100, 100)]),
-            weight: 0.12,
+            score: Curve.score(efficiency, [(60, 46), (75, 54), (85, 89), (90, 100), (95, 100), (100, 100)]),
+            weight: 0.09,
             detail: "\(Int(efficiency.rounded()))% asleep in bed"
         ))
 
@@ -80,8 +80,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "restfulness",
             label: "Restfulness",
-            score: Curve.score(restlessness, [(0, 100), (5, 95), (10, 80), (20, 55), (35, 25), (50, 5)]),
-            weight: 0.14,
+            score: Curve.score(restlessness, [(0, 100), (5, 95), (10, 72), (20, 55), (35, 52), (50, 40)]),
+            weight: 0.12,
             detail: night.restlessPeriods.map { "\($0) restless periods" } ?? Format.duration(night.awake) + " awake"
         ))
 
@@ -89,8 +89,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "rem",
             label: "REM sleep",
-            score: Curve.score(remShare, [(5, 20), (10, 55), (15, 80), (20, 95), (22, 100), (30, 100), (35, 85), (45, 60)]),
-            weight: 0.14,
+            score: Curve.score(remShare, [(5, 20), (10, 47), (15, 72), (20, 91), (22, 100), (30, 100), (35, 100), (45, 60)]),
+            weight: 0.12,
             detail: "\(Format.duration(night.rem)) (\(Int(remShare.rounded()))%)"
         ))
 
@@ -98,8 +98,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "deep",
             label: "Deep sleep",
-            score: Curve.score(deepShare, [(3, 15), (8, 50), (12, 80), (15, 95), (18, 100), (25, 100), (32, 85)]),
-            weight: 0.14,
+            score: Curve.score(deepShare, [(3, 15), (8, 78), (12, 82), (15, 99), (18, 100), (25, 100), (32, 93)]),
+            weight: 0.15,
             detail: "\(Format.duration(night.deep)) (\(Int(deepShare.rounded()))%)"
         ))
 
@@ -107,8 +107,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "latency",
             label: "Latency",
-            score: Curve.score(latencyMinutes, [(0, 80), (5, 95), (10, 100), (20, 100), (30, 85), (45, 60), (60, 40), (90, 15)]),
-            weight: 0.10,
+            score: Curve.score(latencyMinutes, [(0, 80), (5, 92), (10, 100), (20, 100), (30, 95), (45, 58), (60, 40), (90, 23)]),
+            weight: 0.11,
             detail: "\(Int(latencyMinutes.rounded())) min to fall asleep"
         ))
 
@@ -116,8 +116,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "timing",
             label: "Timing",
-            score: Curve.score(midpointDeviation, [(0, 100), (0.5, 100), (1, 95), (2, 80), (3, 55), (4, 30), (6, 10)]),
-            weight: 0.14,
+            score: Curve.score(midpointDeviation, [(0, 100), (0.5, 79), (1, 66), (2, 65), (3, 63), (4, 61), (6, 6)]),
+            weight: 0.10,
             detail: "Midpoint \(Format.clockTime(night.midpoint))"
         ))
 
@@ -158,8 +158,8 @@ struct ScoreEngine {
             contributors.append(Contributor(
                 id: "rhr",
                 label: "Resting heart rate",
-                score: Curve.score(delta, [(-8, 100), (-3, 100), (0, 97), (2, 88), (4, 72), (7, 45), (12, 15)]),
-                weight: 0.18,
+                score: Curve.score(delta, [(-8, 96), (-3, 94), (0, 80), (2, 79), (4, 77), (7, 7), (12, 0)]),
+                weight: 0.19,
                 detail: "\(Int(rhr.rounded())) bpm vs \(Int(baseline.rounded())) baseline"
             ))
         } else if let rhr = night?.lowestHeartRate {
@@ -167,7 +167,7 @@ struct ScoreEngine {
                 id: "rhr",
                 label: "Resting heart rate",
                 score: 90,
-                weight: 0.18,
+                weight: 0.19,
                 detail: "\(Int(rhr.rounded())) bpm — building baseline"
             ))
         }
@@ -177,8 +177,8 @@ struct ScoreEngine {
             contributors.append(Contributor(
                 id: "hrv",
                 label: "HRV balance",
-                score: Curve.score(ratio, [(0.6, 15), (0.75, 40), (0.85, 65), (0.95, 85), (1.0, 92), (1.1, 100), (1.4, 100)]),
-                weight: 0.20,
+                score: Curve.score(ratio, [(0.6, 0), (0.75, 41), (0.85, 60), (0.95, 70), (1.0, 73), (1.1, 85), (1.4, 85)]),
+                weight: 0.15,
                 detail: "\(Int(hrv.rounded())) ms vs \(Int(baseline.rounded())) baseline"
             ))
         } else if let hrv = night?.averageHRV {
@@ -186,7 +186,7 @@ struct ScoreEngine {
                 id: "hrv",
                 label: "HRV balance",
                 score: 90,
-                weight: 0.20,
+                weight: 0.15,
                 detail: "\(Int(hrv.rounded())) ms — building baseline"
             ))
         }
@@ -195,8 +195,8 @@ struct ScoreEngine {
             contributors.append(Contributor(
                 id: "temperature",
                 label: "Body temperature",
-                score: Curve.score(abs(deviation), [(0, 100), (0.2, 97), (0.4, 85), (0.6, 65), (0.9, 40), (1.5, 10)]),
-                weight: 0.14,
+                score: Curve.score(abs(deviation), [(0, 97), (0.2, 85), (0.4, 74), (0.6, 41), (0.9, 40), (1.5, 10)]),
+                weight: 0.10,
                 detail: String(format: "%+.2f °C from baseline", deviation)
             ))
         }
@@ -205,8 +205,8 @@ struct ScoreEngine {
             contributors.append(Contributor(
                 id: "previousNight",
                 label: "Previous night",
-                score: Double(sleepScore.value),
-                weight: 0.18,
+                score: Curve.score(Double(sleepScore.value), [(0, 0), (100, 88)]),
+                weight: 0.25,
                 detail: "Sleep score \(sleepScore.value)"
             ))
         }
@@ -216,7 +216,7 @@ struct ScoreEngine {
             contributors.append(Contributor(
                 id: "sleepBalance",
                 label: "Sleep balance",
-                score: Curve.score(ratio, [(0.6, 25), (0.75, 55), (0.85, 75), (0.95, 92), (1.0, 100), (1.2, 100)]),
+                score: Curve.score(ratio, [(0.6, 25), (0.75, 55), (0.85, 67), (0.95, 89), (1.0, 100), (1.2, 100)]),
                 weight: 0.12,
                 detail: String(format: "%.1f h/night over two weeks", baseline)
             ))
@@ -228,7 +228,7 @@ struct ScoreEngine {
             contributors.append(Contributor(
                 id: "activityBalance",
                 label: "Activity balance",
-                score: Curve.score(ratio, [(0.4, 70), (0.7, 90), (1.0, 100), (1.3, 85), (1.6, 60), (2.0, 35)]),
+                score: Curve.score(ratio, [(0.4, 84), (0.7, 92), (1.0, 85), (1.3, 85), (1.6, 76), (2.0, 35)]),
                 weight: 0.08,
                 detail: ratio > 1.2 ? "Training load rising" : (ratio < 0.7 ? "Training load falling" : "Training load steady")
             ))
@@ -239,8 +239,8 @@ struct ScoreEngine {
             contributors.append(Contributor(
                 id: "previousDayActivity",
                 label: "Previous day activity",
-                score: Curve.score(load, [(0, 85), (50, 100), (150, 100), (300, 80), (500, 55), (800, 30)]),
-                weight: 0.05,
+                score: Curve.score(load, [(0, 86), (50, 92), (150, 100), (300, 88), (500, 55), (800, 30)]),
+                weight: 0.06,
                 detail: "\(Int(load.rounded())) MET-min yesterday"
             ))
         }
@@ -276,7 +276,7 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "stayActive",
             label: "Stay active",
-            score: Curve.score(sedentaryHours, [(4, 100), (6, 95), (8, 80), (10, 60), (12, 35), (14, 15)]),
+            score: Curve.score(sedentaryHours, [(4, 80), (6, 79), (8, 53), (10, 49), (12, 30), (14, 28)]),
             weight: 0.18,
             detail: String(format: "%.1f h sedentary", sedentaryHours)
         ))
@@ -284,7 +284,7 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "moveEveryHour",
             label: "Move every hour",
-            score: Curve.score(Double(activity.inactivityAlerts), [(0, 100), (1, 92), (2, 80), (3, 65), (5, 40), (8, 15)]),
+            score: Curve.score(Double(activity.inactivityAlerts), [(0, 97), (1, 80), (2, 78), (3, 57), (5, 40), (8, 15)]),
             weight: 0.12,
             detail: "\(activity.inactivityAlerts) inactivity alerts"
         ))
@@ -294,8 +294,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "dailyTargets",
             label: "Meet daily targets",
-            score: Curve.score(ratio, [(0.2, 20), (0.5, 55), (0.8, 85), (1.0, 100), (1.5, 100), (2.0, 90)]),
-            weight: 0.28,
+            score: Curve.score(ratio, [(0.2, 40), (0.5, 40), (0.8, 64), (1.0, 75), (1.5, 75), (2.0, 90)]),
+            weight: 0.25,
             detail: "\(Int(activity.activeCalories.rounded())) / \(Int(target.rounded())) active kcal"
         ))
 
@@ -306,8 +306,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "trainingFrequency",
             label: "Training frequency",
-            score: Curve.score(Double(trainingDays), [(0, 20), (1, 45), (2, 65), (3, 85), (4, 95), (5, 100), (7, 100)]),
-            weight: 0.16,
+            score: Curve.score(Double(trainingDays), [(0, 44), (1, 59), (2, 71), (3, 94), (4, 95), (5, 95), (7, 100)]),
+            weight: 0.14,
             detail: "\(trainingDays) active days this week"
         ))
 
@@ -317,8 +317,8 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "trainingVolume",
             label: "Training volume",
-            score: Curve.score(weeklyMET / weeklyMETMinuteTarget, [(0.2, 25), (0.5, 60), (0.8, 88), (1.0, 100), (1.6, 100), (2.2, 80)]),
-            weight: 0.18,
+            score: Curve.score(weeklyMET / weeklyMETMinuteTarget, [(0.2, 25), (0.5, 86), (0.8, 88), (1.0, 100), (1.6, 100), (2.2, 80)]),
+            weight: 0.23,
             detail: "\(Int(weeklyMET.rounded())) MET-min over 7 days"
         ))
 

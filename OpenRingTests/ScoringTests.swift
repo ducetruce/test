@@ -163,7 +163,9 @@ final class ScoreEngineTests: XCTestCase {
 
         let hitScore = try XCTUnwrap(hit)
         let missedScore = try XCTUnwrap(missed)
-        XCTAssertGreaterThan(hitScore.value, missedScore.value + 20)
+        // The calibrated daily-target curve is far flatter than the original guess, so
+        // hitting the target separates less sharply than it used to.
+        XCTAssertGreaterThan(hitScore.value, missedScore.value + 15)
     }
 }
 

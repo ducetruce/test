@@ -236,36 +236,36 @@ struct ScoringExplainerView: View {
     var body: some View {
         List {
             Section {
-                Text("Scores are computed on this device from the raw measurements your ring records. They follow the same contributors Oura publishes, but the curves are OpenRing's own, so numbers can differ from the Oura app by a few points.")
+                Text("Scores are computed on this device from the raw measurements your ring records. The contributors follow the ones Oura publishes; the curves are OpenRing's own, fitted against 150 days of your data with a third held back to check they generalise. Held-out agreement with Oura: sleep within 5 points on 88% of days, readiness on 59%, activity on 61%.")
                     .font(.footnote)
             }
 
             Section("Sleep") {
-                explain("Total sleep", "22%", "Full credit from about 7 to 9 hours.")
-                explain("Restfulness", "14%", "Restless periods per hour of sleep.")
-                explain("REM sleep", "14%", "Share of the night in REM, ideal around 20–25%.")
-                explain("Deep sleep", "14%", "Share of the night in deep sleep, ideal around 15–20%.")
-                explain("Timing", "14%", "How far the midpoint of the night sits from 03:00.")
-                explain("Efficiency", "12%", "Time asleep divided by time in bed.")
-                explain("Latency", "10%", "Minutes to fall asleep; 10–20 is ideal.")
+                explain("Total sleep", "31%", "Rises steeply to about 8 hours, then flat — long nights are not penalised.")
+                explain("Deep sleep", "15%", "Share of the night in deep sleep; credit starts earlier than first assumed.")
+                explain("REM sleep", "12%", "Share of the night in REM, full credit from about 22%.")
+                explain("Restfulness", "12%", "Restless periods per hour; a weaker signal than expected.")
+                explain("Latency", "11%", "Minutes to fall asleep; 10–20 is ideal.")
+                explain("Timing", "10%", "Midpoint against 03:00 — flat once past an hour, so it mostly marks extremes.")
+                explain("Efficiency", "9%", "Time asleep divided by time in bed.")
             }
 
             Section("Readiness") {
-                explain("HRV balance", "20%", "Last night's average HRV against your 14-day median.")
-                explain("Resting heart rate", "18%", "Lowest nightly heart rate against your 14-day median.")
-                explain("Previous night", "18%", "Your sleep score for the night just recorded.")
-                explain("Body temperature", "14%", "Deviation from your own temperature baseline.")
+                explain("Previous night", "25%", "Your sleep score for the night just recorded.")
+                explain("Resting heart rate", "19%", "Lowest nightly heart rate against your 14-day median; falls off sharply past +4 bpm.")
+                explain("HRV balance", "15%", "Last night's average HRV against your 14-day median.")
+                explain("Body temperature", "10%", "Deviation from your own temperature baseline.")
                 explain("Sleep balance", "12%", "Two-week average sleep against a \(Format.number(engine.sleepNeedHours, decimals: 1))-hour need.")
                 explain("Activity balance", "8%", "Last week's training load against your four-week average.")
-                explain("Previous day activity", "5%", "How hard yesterday was.")
+                explain("Previous day activity", "6%", "How hard yesterday was.")
                 explain("Recovery index", "5%", "How early in the night your heart rate bottomed out.")
             }
 
             Section("Activity") {
-                explain("Meet daily targets", "28%", "Active calories against your Oura target.")
+                explain("Meet daily targets", "25%", "Active calories against your Oura target.")
+                explain("Training volume", "23%", "Weekly medium and high MET-minutes against \(Int(engine.weeklyMETMinuteTarget)).")
                 explain("Stay active", "18%", "Hours spent sedentary.")
-                explain("Training volume", "18%", "Weekly medium and high MET-minutes against \(Int(engine.weeklyMETMinuteTarget)).")
-                explain("Training frequency", "16%", "Days in the last week with 20+ minutes of real activity.")
+                explain("Training frequency", "14%", "Days in the last week with 20+ minutes of real activity.")
                 explain("Move every hour", "12%", "Inactivity alerts recorded by the ring.")
                 explain("Recovery time", "8%", "Heavy recent training paired with a poor night costs points.")
             }

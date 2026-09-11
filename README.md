@@ -195,13 +195,27 @@ its own, as transparent piecewise-linear curves — the tables in
 [`ScoreEngine.swift`](OpenRing/Scoring/ScoreEngine.swift) are the whole algorithm, and the app
 shows every contributor with its weight in Settings → *How the scores are calculated*.
 
-- **Sleep (7 contributors)** — total sleep 22%, REM 14%, deep 14%, restfulness 14%, timing 14%,
-  efficiency 12%, latency 10%.
-- **Readiness (8)** — HRV balance 20%, resting heart rate 18%, previous night 18%,
-  body temperature 14%, sleep balance 12%, activity balance 8%, previous day activity 5%,
+- **Sleep (7 contributors)** — total sleep 31%, deep 15%, REM 12%, restfulness 12%,
+  latency 11%, timing 10%, efficiency 9%.
+- **Readiness (8)** — previous night 25%, resting heart rate 19%, HRV balance 15%,
+  sleep balance 12%, body temperature 10%, activity balance 8%, previous day activity 6%,
   recovery index 5%.
-- **Activity (6)** — daily targets 28%, stay active 18%, training volume 18%,
-  training frequency 16%, move every hour 12%, recovery time 8%.
+- **Activity (6)** — daily targets 25%, training volume 23%, stay active 18%,
+  training frequency 14%, move every hour 12%, recovery time 8%.
+
+The curves and weights above are **fitted, not guessed**. Settings exports one row per day
+with each score, Oura's score for the same day, and the inputs behind it; those rows were fitted
+by coordinate descent on two thirds of the data, with the final third held back. Every curve is
+constrained to a monotone or single-peaked shape, because an unconstrained fit cheerfully
+decides that a 90-minute sleep latency beats a 60-minute one.
+
+Held-out agreement with Oura after fitting:
+
+| | before | after |
+|---|---|---|
+| Sleep — within 5 points | 50% | 88% |
+| Readiness — within 5 points | 31% | 59% |
+| Activity — within 5 points | 37% | 61% |
 
 Two design rules matter:
 
