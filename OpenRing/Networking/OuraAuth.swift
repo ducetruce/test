@@ -58,7 +58,10 @@ actor OuraAuth: OuraTokenProviding {
     /// the redirect URI on the Oura application exactly.
     static let redirectURI = "openring://oauth-callback"
 
-    static let scopes = ["email", "personal", "daily", "heartrate", "workout", "tag", "session", "spo2Daily", "ring"]
+    /// The complete scope list documented by Oura. Keep these wire values exact: unknown
+    /// values can make the authorization request fail, and the SpO2 scope is `spo2` even
+    /// though its API endpoint is named `daily_spo2`.
+    static let scopes = ["email", "personal", "daily", "heartrate", "workout", "tag", "session", "spo2"]
 
     private static let keychainAccount = "oura-oauth-credentials"
 
@@ -113,8 +116,16 @@ actor OuraAuth: OuraTokenProviding {
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Pulls `code` out of the redirect, rejecting a mismatched or missing `state`.
-    nonisolated static func authorizationCode(from callback: URL, expectedState: String) throws -> String {
+    struct AuthorizationGrant: Equatable {
+        var code: String
+        /// Oura can return fewer scopes than were requested if the user disables one on the
+        /// consent screen. An empty array means the response did not state the grant.
+        var scopes: [String]
+    }
+
+    /// Pulls the code and actual grant out of the redirect, rejecting a mismatched or missing
+    /// `state`. The callback's scope list is authoritative; it may be a subset of the request.
+    nonisolated static func authorizationGrant(from callback: URL, expectedState: String) throws -> AuthorizationGrant {
         let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
 
@@ -127,12 +138,20 @@ actor OuraAuth: OuraTokenProviding {
         guard let code = value("code"), !code.isEmpty else {
             throw OuraError.authorisationFailed("no authorisation code in the redirect")
         }
-        return code
+        let grantedScopes = value("scope")?
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init) ?? []
+        return AuthorizationGrant(code: code, scopes: grantedScopes)
     }
 
     // MARK: - Token exchange
 
-    func exchange(code: String, clientID: String, clientSecret: String) async throws -> OuraCredentials {
+    func exchange(
+        code: String,
+        clientID: String,
+        clientSecret: String,
+        grantedScopes: [String]
+    ) async throws -> OuraCredentials {
         let credentials = try await requestToken(
             form: [
                 "grant_type": "authorization_code",
@@ -143,7 +162,8 @@ actor OuraAuth: OuraTokenProviding {
             ],
             clientID: clientID,
             clientSecret: clientSecret,
-            previousRefreshToken: nil
+            previousRefreshToken: nil,
+            grantedScopes: grantedScopes
         )
         store(credentials)
         return credentials
@@ -185,7 +205,8 @@ actor OuraAuth: OuraTokenProviding {
             clientSecret: existing.clientSecret,
             // Oura may omit refresh_token on a refresh response; keep the old one only in
             // that case, since a returned one always supersedes it.
-            previousRefreshToken: existing.refreshToken
+            previousRefreshToken: existing.refreshToken,
+            grantedScopes: existing.grantedScopes
         )
         store(refreshed)
         lastRefresh = Date()
@@ -228,17 +249,20 @@ actor OuraAuth: OuraTokenProviding {
         form: [String: String],
         clientID: String,
         clientSecret: String,
-        previousRefreshToken: String?
+        previousRefreshToken: String?,
+        grantedScopes: [String]
     ) async throws -> OuraCredentials {
         do {
             return try await attemptToken(
                 form: form, clientID: clientID, clientSecret: clientSecret,
-                previousRefreshToken: previousRefreshToken, useBasicAuth: false
+                previousRefreshToken: previousRefreshToken, grantedScopes: grantedScopes,
+                useBasicAuth: false
             )
         } catch OuraError.invalidClient {
             return try await attemptToken(
                 form: form, clientID: clientID, clientSecret: clientSecret,
-                previousRefreshToken: previousRefreshToken, useBasicAuth: true
+                previousRefreshToken: previousRefreshToken, grantedScopes: grantedScopes,
+                useBasicAuth: true
             )
         }
     }
@@ -248,6 +272,7 @@ actor OuraAuth: OuraTokenProviding {
         clientID: String,
         clientSecret: String,
         previousRefreshToken: String?,
+        grantedScopes: [String],
         useBasicAuth: Bool
     ) async throws -> OuraCredentials {
         var request = URLRequest(url: Self.tokenURL)
@@ -307,7 +332,7 @@ actor OuraAuth: OuraTokenProviding {
             accessToken: token.accessToken,
             refreshToken: refreshToken,
             expiresAt: Date().addingTimeInterval(token.expiresIn ?? 3600),
-            grantedScopes: Self.scopes
+            grantedScopes: grantedScopes
         )
     }
 

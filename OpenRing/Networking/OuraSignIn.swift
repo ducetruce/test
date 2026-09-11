@@ -27,8 +27,13 @@ final class OuraSignIn: NSObject {
             .queryItems?.first { $0.name == "state" }?.value ?? ""
 
         let callback = try await present(url: url)
-        let code = try OuraAuth.authorizationCode(from: callback, expectedState: state)
-        return try await auth.exchange(code: code, clientID: trimmedID, clientSecret: trimmedSecret)
+        let grant = try OuraAuth.authorizationGrant(from: callback, expectedState: state)
+        return try await auth.exchange(
+            code: grant.code,
+            clientID: trimmedID,
+            clientSecret: trimmedSecret,
+            grantedScopes: grant.scopes
+        )
     }
 
     private func present(url: URL) async throws -> URL {

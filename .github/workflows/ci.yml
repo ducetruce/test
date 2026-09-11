@@ -4,7 +4,9 @@ name: Build and test
 # tightly: one branch, superseded runs cancelled, and a hard timeout.
 on:
   push:
-    branches: [ "claude/ios-oura-app-clone-xafabh" ]
+    branches:
+      - "claude/ios-oura-app-clone-xafabh"
+      - "codex/**"
   workflow_dispatch:
 
 concurrency:

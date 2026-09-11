@@ -243,14 +243,16 @@ final class OuraAuthTests: XCTestCase {
     }
 
     func testAuthorizationCodeIsExtractedWhenStateMatches() throws {
-        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=the-code&state=s1"))
-        XCTAssertEqual(try OuraAuth.authorizationCode(from: callback, expectedState: "s1"), "the-code")
+        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=the-code&scope=daily%20personal&state=s1"))
+        let grant = try OuraAuth.authorizationGrant(from: callback, expectedState: "s1")
+        XCTAssertEqual(grant.code, "the-code")
+        XCTAssertEqual(grant.scopes, ["daily", "personal"])
     }
 
     /// A mismatched state is the signature of a forged redirect; the code must be discarded.
     func testMismatchedStateIsRejected() throws {
         let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=the-code&state=attacker"))
-        XCTAssertThrowsError(try OuraAuth.authorizationCode(from: callback, expectedState: "s1")) { error in
+        XCTAssertThrowsError(try OuraAuth.authorizationGrant(from: callback, expectedState: "s1")) { error in
             guard case OuraError.stateMismatch = error else {
                 return XCTFail("expected stateMismatch, got \(error)")
             }
@@ -259,12 +261,12 @@ final class OuraAuthTests: XCTestCase {
 
     func testMissingStateIsRejected() throws {
         let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=the-code"))
-        XCTAssertThrowsError(try OuraAuth.authorizationCode(from: callback, expectedState: "s1"))
+        XCTAssertThrowsError(try OuraAuth.authorizationGrant(from: callback, expectedState: "s1"))
     }
 
     func testDeclinedAuthorisationSurfacesOurasReason() throws {
         let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?error=access_denied&state=s1"))
-        XCTAssertThrowsError(try OuraAuth.authorizationCode(from: callback, expectedState: "s1")) { error in
+        XCTAssertThrowsError(try OuraAuth.authorizationGrant(from: callback, expectedState: "s1")) { error in
             guard case OuraError.authorisationFailed(let detail) = error else {
                 return XCTFail("expected authorisationFailed, got \(error)")
             }
@@ -337,10 +339,13 @@ final class OuraWindowTests: XCTestCase {
 }
 
 final class OuraScopeTests: XCTestCase {
-    /// Oura's consent screen offers a ring scope; omitting it returned 403 on
-    /// ring_configuration while every other endpoint worked.
-    func testRingScopeIsRequested() {
-        XCTAssertTrue(OuraAuth.scopes.contains("ring"))
+    func testOnlyDocumentedScopesAreRequested() {
+        XCTAssertEqual(
+            OuraAuth.scopes,
+            ["email", "personal", "daily", "heartrate", "workout", "tag", "session", "spo2"]
+        )
+        XCTAssertFalse(OuraAuth.scopes.contains("ring"))
+        XCTAssertFalse(OuraAuth.scopes.contains("spo2Daily"))
     }
 
     func testScopesAreSpaceSeparatedInTheAuthorizationURL() throws {
@@ -349,6 +354,18 @@ final class OuraScopeTests: XCTestCase {
             .queryItems?.first { $0.name == "scope" }?.value)
         XCTAssertEqual(scope.split(separator: " ").count, OuraAuth.scopes.count)
         XCTAssertFalse(scope.contains(","))
+    }
+
+    func testMissingCallbackScopeIsRecordedAsUnknown() throws {
+        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=c&state=s"))
+        let grant = try OuraAuth.authorizationGrant(from: callback, expectedState: "s")
+        XCTAssertTrue(grant.scopes.isEmpty)
+    }
+
+    func testDeniedScopesAreNotSilentlyClaimed() throws {
+        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=c&scope=daily%20personal&state=s"))
+        let grant = try OuraAuth.authorizationGrant(from: callback, expectedState: "s")
+        XCTAssertFalse(Set(OuraAuth.scopes).isSubset(of: Set(grant.scopes)))
     }
 
     func testCredentialsCarryTheScopesTheyWereGrantedWith() throws {
@@ -360,9 +377,8 @@ final class OuraScopeTests: XCTestCase {
         XCTAssertEqual(restored.grantedScopes, ["daily", "personal"])
     }
 
-    /// Credentials stored before scope tracking cover an unknown set, and certainly predate
-    /// the ring scope — so they must prompt, not stay quiet. Treating unknown as fine meant
-    /// the prompt never fired for anyone upgrading, which is everyone who needs it.
+    /// Credentials stored before scope tracking cover an unknown set, so they must prompt
+    /// rather than silently claiming every requested permission was granted.
     func testCredentialsFromBeforeScopeTrackingArePromptedToReauthorise() throws {
         let legacy = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "c",
                                      refreshToken: "d", expiresAt: Date(), grantedScopes: [])
