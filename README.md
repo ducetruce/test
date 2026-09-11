@@ -1,5 +1,7 @@
 # OpenRing
 
+[![Build and test](https://github.com/ducetruce/test/actions/workflows/ci.yml/badge.svg?branch=claude/ios-oura-app-clone-xafabh)](https://github.com/ducetruce/test/actions/workflows/ci.yml)
+
 A local iOS app for your Oura ring data. It keeps a full copy of your data on your phone and
 **computes Sleep, Readiness and Activity scores on-device**, so you get scored metrics without
 depending on the official app's proprietary scoring models.
@@ -110,7 +112,11 @@ this is an independent Swift implementation of the documented format, not a port
 
 ## Build and install
 
-Requirements: a Mac with **Xcode 16 or newer**, and an iPhone on **iOS 17+**.
+Every push builds and runs the test suite on a macOS runner — currently green on
+Xcode 26.6 with 53 passing tests — so you do not need a Mac to know the project compiles.
+You do still need one to install it on a phone; see *Getting it onto a phone* below.
+
+Requirements to build locally: a Mac with **Xcode 16 or newer**, and an iPhone on **iOS 17+**.
 
 1. `open OpenRing.xcodeproj`
 2. Select the **OpenRing** target → **Signing & Capabilities** → pick your Apple ID under
@@ -127,6 +133,19 @@ Requirements: a Mac with **Xcode 16 or newer**, and an iPhone on **iOS 17+**.
 
 If the checked-in project file ever goes stale, regenerate it:
 `brew install xcodegen && xcodegen generate`.
+
+## Getting it onto a phone
+
+Building is solved; installing is a separate wall, because iOS requires a signed build.
+Three routes, none of which need you to own a Mac:
+
+| Route | Cost | Catch |
+|---|---|---|
+| **AltStore / SideStore** with a free Apple ID | free | CI produces an unsigned `.ipa`, you sideload it. AltStore needs a Windows PC; SideStore refreshes on-device. Signature expires every 7 days either way. |
+| **Apple Developer Program** + TestFlight | $99/yr | CI signs and uploads, install is over the air, builds last 90 days. Weigh the $99 against the subscription being replaced. |
+| Borrow a Mac | free | Still only 7 days before it needs re-signing. |
+
+The unsigned-IPA CI job is not written yet — it is the obvious next step once a route is chosen.
 
 ## Connecting your data
 
