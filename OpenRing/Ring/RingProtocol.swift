@@ -1,5 +1,6 @@
 import Foundation
 import CommonCrypto
+import Security
 
 /// Wire format for the Oura Gen 3/4/5 BLE protocol.
 ///
@@ -145,8 +146,27 @@ enum RingProtocol {
     }
 
     /// Only accepted by a factory-reset ring — installs a key you generate yourself.
+    /// A ring that already has a key ignores or rejects this.
     static func setAuthKey(_ key: [UInt8]) -> Frame {
         Frame(tag: Opcode.setAuthKey.rawValue, payload: key)
+    }
+
+    /// Reply to `setAuthKey`: `25 01 00` on success.
+    static func keyInstallSucceeded(in frame: Frame) -> Bool? {
+        guard frame.tag == Opcode.setAuthKeyReply.rawValue, let status = frame.payload.first else { return nil }
+        return status == 0x00
+    }
+
+    /// A fresh 16-byte key from the system CSPRNG. Losing it costs another factory reset,
+    /// so callers must persist it before putting it on the ring.
+    static func generateAuthKey() -> [UInt8]? {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        return bytes
+    }
+
+    static func hexString(_ bytes: [UInt8]) -> String {
+        bytes.map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Responses

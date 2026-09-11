@@ -14,6 +14,9 @@ struct RingSyncView: View {
     @State private var keyHex = ""
     @State private var showingLog = false
     @State private var captureURL: URL?
+    @State private var generatedKey = ""
+    @State private var keyIsBackedUp = false
+    @State private var pairingMessage: String?
 
     var body: some View {
         List {
@@ -22,6 +25,7 @@ struct RingSyncView: View {
             deviceSection
             syncSection
             if sync.report.eventsReceived > 0 { reportSection }
+            pairingSection
             diagnosticsSection
         }
         .navigationTitle("Sync from ring")
@@ -107,13 +111,13 @@ struct RingSyncView: View {
                     HStack {
                         Text(peripheral.name ?? peripheral.identifier.uuidString)
                         Spacer()
-                        if connection.state == .ready || connection.state == .authenticated {
+                        if isConnected {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                         }
                     }
                 }
             }
-            if connection.state == .ready || connection.state == .authenticated {
+            if isConnected {
                 Button("Disconnect", role: .destructive) { connection.disconnect() }
             }
         }
@@ -132,7 +136,7 @@ struct RingSyncView: View {
             } label: {
                 Label("Drain history from ring", systemImage: "arrow.down.circle")
             }
-            .disabled(!keyStatus.isValid || !(connection.state == .ready || connection.state == .authenticated))
+            .disabled(!keyStatus.isValid || !isConnected)
 
             Button("Reset cursor and start over") { sync.resetCursor() }
                 .foregroundStyle(.orange)
@@ -156,6 +160,96 @@ struct RingSyncView: View {
                 }
                 .font(.footnote)
             }
+        }
+    }
+
+    /// Claiming a factory-reset ring with a key you generate yourself. This is the route
+    /// that needs no key extraction — but it takes the ring away from the official app.
+    private var pairingSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("A factory-reset ring accepts a key from whoever asks first. Reset the ring with the dock (flip it 180° repeatedly until the LED runs blue → red → magenta → yellow, then blinks blue), then install a key here.")
+                    .font(.footnote)
+                Text("This is single-owner. Once you claim the ring, the official Oura app no longer works with it — which means no cloud sync, no API, no data export and no Oura scores — until you factory reset again. Resetting also wipes the ring's stored history, so sync before you reset.")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+
+            if generatedKey.isEmpty {
+                Button {
+                    if let key = RingProtocol.generateAuthKey() {
+                        generatedKey = RingProtocol.hexString(key)
+                        keyIsBackedUp = false
+                        pairingMessage = nil
+                    } else {
+                        pairingMessage = "Could not generate a key."
+                    }
+                } label: {
+                    Label("Generate a new 16-byte key", systemImage: "key")
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(generatedKey)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 8))
+                    Text("Write this down somewhere outside this app. If you lose it the only way back into the ring is another factory reset.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ShareLink(item: generatedKey) {
+                        Label("Copy or share the key", systemImage: "square.and.arrow.up")
+                            .font(.footnote)
+                    }
+                }
+                Toggle("I have saved this key somewhere safe", isOn: $keyIsBackedUp)
+                    .font(.footnote)
+
+                Button {
+                    Task { await claimRing() }
+                } label: {
+                    Label("Install key on the ring", systemImage: "lock.open")
+                }
+                .disabled(!keyIsBackedUp || !isConnected)
+
+                Button("Discard this key", role: .destructive) {
+                    generatedKey = ""
+                    keyIsBackedUp = false
+                }
+                .font(.footnote)
+            }
+
+            if let pairingMessage {
+                Text(pairingMessage)
+                    .font(.footnote)
+                    .foregroundStyle(pairingMessage.hasPrefix("Claimed") ? .green : .red)
+            }
+        } header: {
+            Text("Claim a factory-reset ring")
+        } footer: {
+            Text("The factory reset itself is done with the dock, not from here — a health app should not carry a one-tap button that wipes your ring.")
+        }
+    }
+
+    private var isConnected: Bool {
+        connection.state == .ready || connection.state == .authenticated
+    }
+
+    private func claimRing() async {
+        // Persist before writing: a key that reaches the ring but not the Keychain is a
+        // ring you have locked yourself out of.
+        model.saveRingKey(generatedKey)
+        do {
+            try await connection.installAuthKey(keyHex: generatedKey)
+            keyHex = generatedKey
+            // A reset ring starts its event stream from zero.
+            sync.resetCursor()
+            pairingMessage = "Claimed. The key is saved and the sync cursor is back to zero."
+            generatedKey = ""
+            keyIsBackedUp = false
+        } catch {
+            pairingMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 

@@ -54,11 +54,33 @@ ring's own history-event stream with no cloud involved.
 
 ### What the BLE path needs, and how far it goes
 
-It needs the ring's **16-byte auth key**. The key is generated when the official Oura app
-first pairs with the ring and lives in that app's encrypted database. There is no master key
-and it cannot be derived. Getting it means ADB on a rooted Android device, jailbreak tooling
-on iOS, or sniffing the pairing exchange. That is the honest cost of this route, and it is
-why the cloud API stays the default.
+It needs the ring's **16-byte auth key**, and there are two ways to have one.
+
+**Use Oura's key.** It is generated when the official app first pairs with the ring and lives
+in that app's encrypted database. There is no master key and it cannot be derived, so getting
+it means ADB on a rooted Android device, jailbreak tooling on iOS, or sniffing the pairing
+exchange. The payoff is coexistence: one key, and both the official app and this one work.
+
+**Or install your own** (Settings → Advanced → *Claim a factory-reset ring*). A factory-reset
+ring accepts a key from whoever asks first — `24 10 <16 bytes>`, answered with `25 01 00` —
+and the reset itself can be done with the dock alone: flip it 180° repeatedly until the LED
+runs blue → red → magenta → yellow, then blinks blue. No root, no jailbreak, no sniffer.
+
+The catch is that a ring is **single-owner**. Claiming it takes it away from the official app,
+and with it cloud sync, the API, data export and Oura's own scores; re-onboarding with the
+official app installs Oura's key and locks this app out until you factory reset again.
+Resetting also wipes the ring's event buffer, so sync before you reset.
+
+**Do not claim your ring yet.** Only three event bodies are decoded so far (below), and
+mapping the rest is much easier while the official app still works, because the cloud gives
+you ground truth for the same night. Self-pairing destroys exactly the reference data that
+finishes the job.
+
+The app generates the key with the system CSPRNG, makes you confirm you have saved it before
+it will write it to the ring, and stores it in the Keychain *before* sending — a key that
+reaches the ring but not your phone is a ring you have locked yourself out of. The factory
+reset command itself is deliberately **not** implemented: the dock does it safely, and a
+health app should not carry a one-tap button that wipes your ring.
 
 Implemented in full, from the published protocol notes:
 

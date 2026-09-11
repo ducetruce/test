@@ -76,6 +76,40 @@ final class RingFrameTests: XCTestCase {
         XCTAssertNil(RingProtocol.encryptNonce([0x00], key: [UInt8](repeating: 0, count: 8)))
     }
 
+    func testSetAuthKeyFrameMatchesTheDocumentedPairingCommand() {
+        let key = [UInt8](repeating: 0xAB, count: 16)
+        let frame = RingProtocol.setAuthKey(key)
+        // 24 10 <16 bytes>
+        XCTAssertEqual(frame.tag, 0x24)
+        XCTAssertEqual(frame.payload.count, 16)
+        XCTAssertEqual(Array(frame.encoded.prefix(2)), [0x24, 0x10])
+    }
+
+    func testKeyInstallReplyParsing() {
+        let accepted = RingProtocol.Frame(tag: 0x25, payload: [0x00])
+        let refused = RingProtocol.Frame(tag: 0x25, payload: [0x01])
+        XCTAssertEqual(RingProtocol.keyInstallSucceeded(in: accepted), true)
+        XCTAssertEqual(RingProtocol.keyInstallSucceeded(in: refused), false)
+        // An unrelated frame is not an answer to the pairing command.
+        XCTAssertNil(RingProtocol.keyInstallSucceeded(in: RingProtocol.Frame(tag: 0x11, payload: [0x00])))
+    }
+
+    func testGeneratedKeysAreSixteenBytesAndNotRepeated() {
+        let first = RingProtocol.generateAuthKey()
+        let second = RingProtocol.generateAuthKey()
+        XCTAssertEqual(first?.count, 16)
+        XCTAssertEqual(second?.count, 16)
+        XCTAssertNotEqual(first, second)
+        XCTAssertNotEqual(first, [UInt8](repeating: 0, count: 16))
+    }
+
+    func testGeneratedKeyRoundTripsThroughHex() throws {
+        let key = try XCTUnwrap(RingProtocol.generateAuthKey())
+        let hex = RingProtocol.hexString(key)
+        XCTAssertEqual(hex.count, 32)
+        XCTAssertEqual(RingProtocol.hexToBytes(hex), key)
+    }
+
     func testHexParsing() {
         XCTAssertEqual(RingProtocol.hexToBytes("00ff10"), [0x00, 0xFF, 0x10])
         XCTAssertEqual(RingProtocol.hexToBytes("00 FF 10"), [0x00, 0xFF, 0x10])

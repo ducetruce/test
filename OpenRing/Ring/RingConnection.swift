@@ -198,6 +198,24 @@ final class RingConnection: NSObject, ObservableObject {
         note("Authenticated")
     }
 
+    /// Installs a key on a **factory-reset** ring, claiming it.
+    ///
+    /// This is one-way: a ring that already carries a key will not take another, and
+    /// re-onboarding with the official Oura app replaces this key and locks the app out
+    /// until the ring is factory reset again.
+    func installAuthKey(keyHex: String) async throws {
+        guard let key = RingProtocol.hexToBytes(keyHex), key.count == 16 else { throw RingError.badKey }
+        let reply = try await send(
+            RingProtocol.setAuthKey(key),
+            expecting: { RingProtocol.keyInstallSucceeded(in: $0) != nil },
+            describedAs: "key installation"
+        )
+        guard RingProtocol.keyInstallSucceeded(in: reply) == true else {
+            throw RingError.protocolError("the ring refused the key — it is probably not factory reset")
+        }
+        note("Auth key installed")
+    }
+
     // MARK: - Event drain
 
     /// Collects event frames until the ring sends its `0x11` summary.
