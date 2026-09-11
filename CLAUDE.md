@@ -34,9 +34,16 @@ the project if it ever goes stale.
   discard an endpoint's entire history.
 - `Storage/` — `Database` (in-memory model + per-endpoint sync reports), `SyncEngine`
   (orchestrates a sync, builds the warnings), `LocalStore` (disk), `Keychain`.
-- `Scoring/` — the actual value. Piecewise-linear contributor curves fitted against 177 real
-  days, with a chronological train/test split. Held-out agreement with Oura: sleep within 5
-  points on 88% of days, readiness 59%, activity 61%.
+- `Scoring/` — the actual value. Piecewise-linear contributor curves fitted against real days
+  with a chronological train/test split. Activity agreement with Oura is **71.3% of days
+  within 5 points**, measured by rolling origin over six chronological splits of the 142
+  usable paired days in the September 2026 export.
+
+  The older figures in this file (sleep 88%, readiness 59%, activity 61%) could not be
+  reproduced from that export — the same measurement puts activity at 66.4% before the
+  September 2026 refit, not 61%. Either the original fit used a differently filtered set or
+  the numbers went stale. Quote the method with the number from now on: a bare percentage
+  here turned out not to be checkable.
 - `Ring/` — BLE. Reverse-engineered protocol, `tag | length | payload` framing, AES-128-ECB
   nonce challenge, paged `GetEvent` drain.
 - `Views/` — SwiftUI. `Components/Cards.swift` holds the shared card vocabulary.
@@ -116,6 +123,50 @@ iOS rendered half of it black), and the loss of the previous-refresh-token fallb
 - BLE event-body mapping is mostly undone. Only signals with published scaling rules are
   decoded; the rest are not guessed at. A protobuf schema at
   `com/ouraring/ringeventparser/Ringeventparser.java` is a better lead than empirical mapping.
-- The activity curve fit omitted the `recoveryTime` contributor and should be refitted.
+- **`CalibrationExport` had its own copy of the sleep-timing calculation, and it had drifted
+  from the real one.** `midpointDeviationHours` compared each night against a hard-coded 3am
+  reference instead of `ScoreEngine.habitualMidpointHour` — the personal rolling baseline the
+  live `timing` contributor actually reads once 5 nights of history exist. On the September
+  2026 export the two disagreed by up to ~46 points of implied contributor score, one-sided,
+  not a symmetric wobble. Every row exported before this fix has a `midpoint_dev_hr` that does
+  not describe what the app's own score was computed from — reconstructing or fitting `timing`
+  against an export taken before this fix will be fitting the wrong input. Fixed by having the
+  export call the engine's own method instead of a second copy of the formula; watch for this
+  *class* of bug elsewhere before trusting a reconstruction — a private helper that reimplements
+  something the engine already computes is a fork waiting to diverge silently.
+
+- **Sleep is a validated ~20% MAE win away, but nothing has shipped for it yet.** Fitting
+  `a*mine + b` against `sleep_oura` (using only the exported score columns, unaffected by the
+  bug above) took mean absolute error from 3.16 to 2.54, holding at every one of six
+  chronological splits tested — a real, robust, general overestimate of a few points, not
+  noise. `a` lands near 1.0 and `b` near −4 to −7, i.e. the app is consistently ~5 points too
+  generous. The same affine test on readiness and activity found nothing robust — readiness
+  got slightly worse, activity was unstable across splits — so this is specific to sleep.
+
+  Not shipped: the likely cause is exactly the contributor whose export was just fixed
+  (`timing`, weight 0.10, directionally consistent with the size of the bias), but that can't
+  be *proven* from data collected under the old bug. Applying a global affine correction now,
+  then later fixing the `timing` curve itself once clean data exists, would double-correct.
+  Get a fresh export first — one build carries this fix, the earlier `trainingFrequency`
+  columns, and the `recoveryIndex` column below, so one `[ipa]` round trip unblocks all three —
+  then fit `timing` directly. If it doesn't close the gap on its own, the affine correction is
+  still there as a fallback, now checkable against clean data.
+
+- `trainingFrequency` (activity) and `recoveryIndex` (readiness) still cannot be fitted from
+  any export taken so far. Both curves have only ever been guesses: `trainingFrequency`
+  counts days whose high+medium activity minutes clear a threshold, and `recoveryIndex` reads
+  where in the night the heart rate bottomed out, and neither input was ever in
+  `CalibrationExport`. The columns are now (`high_activity_min`, `medium_activity_min`,
+  `hr_minimum_position`), but only a build carrying them can produce a CSV that includes them
+  — waits on the same `[ipa]` round trip as the `timing` fix above.
+
+  `recoveryTime` (activity) was fitted once, in September 2026, against 142 paired days: the
+  well-recovered level moved from 100 to 88. It was backed out again the same day — it raised
+  the share of days within 5 points of Oura (66.4% → 71.3% held-out) but left mean error
+  unchanged at ~4.9 and made bias slightly worse, so days were crossing a threshold without
+  the score getting more accurate. Fitting all 29 activity parameters at once looked better on
+  average (+3.5pt within-5) but its spread crossed below baseline — ~100 training days will
+  not support that many free parameters. Whatever is fitted next here, judge it on mean error,
+  not the within-5 count; the two disagreed once already.
 - Subscription-gated for real, confirmed against the account: cardiovascular age, resilience,
   VO₂ max.

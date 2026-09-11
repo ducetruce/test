@@ -16,7 +16,14 @@ enum CalibrationExport {
         "readiness_coverage", "readiness_mine", "readiness_oura",
         "rhr", "rhr_baseline", "hrv", "hrv_baseline", "temp_dev",
         "activity_coverage", "activity_mine", "activity_oura",
-        "steps", "active_cal", "target_cal", "sedentary_hr", "inactivity_alerts", "met_minutes"
+        "steps", "active_cal", "target_cal", "sedentary_hr", "inactivity_alerts", "met_minutes",
+        // `trainingFrequency` counts days whose high+medium minutes clear a threshold, so the
+        // daily minutes have to be here or that contributor cannot be fitted at all — only
+        // guessed at. Appended rather than grouped so existing column offsets do not move.
+        "high_activity_min", "medium_activity_min",
+        // `recoveryIndex` (readiness) reads where in the night the heart rate bottomed out;
+        // same reasoning as the two above — it was never exportable, so it was never fitted.
+        "hr_minimum_position"
     ]
 
     /// `warmUpDays` skips the span where trailing baselines have not filled yet; those
@@ -53,7 +60,7 @@ enum CalibrationExport {
                 number(share(night?.rem, of: night?.totalSleep), 1),
                 number(night?.latency.map { $0 / 60 }, 1),
                 number(night?.restlessPeriodsPerHour, 2),
-                number(night.map { midpointDeviationHours(for: $0) }, 2)
+                number(night.map { midpointDeviationHours(for: $0, in: database, engine: engine) }, 2)
             ]
 
             row += [
@@ -76,7 +83,10 @@ enum CalibrationExport {
                 number(activity?.targetCalories, 0),
                 number(activity.map { $0.sedentaryTime / 3600 }, 2),
                 integer(activity?.inactivityAlerts),
-                number(activity?.trainingMETMinutes, 0)
+                number(activity?.trainingMETMinutes, 0),
+                number(activity?.highActivityMinutes, 0),
+                number(activity?.mediumActivityMinutes, 0),
+                number(night?.heartRate?.minimumPosition, 3)
             ]
 
             rows.append(row.joined(separator: ","))
@@ -99,10 +109,17 @@ enum CalibrationExport {
         return part / whole * 100
     }
 
-    private static func midpointDeviationHours(for night: SleepPeriod) -> Double {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: night.midpoint)
-        let hour = Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60
-        var difference = abs(hour - 3.0)
+    /// Was a standalone copy with a hard-coded 3am reference, which silently diverged from
+    /// what `sleepScore`'s `timing` contributor actually reads — the personal rolling
+    /// midpoint, once 5 nights of history exist. A row's exported `midpoint_dev_hr` could be
+    /// off by as much as the personal baseline had drifted from 3am, which for anyone whose
+    /// habitual midpoint isn't there is most of the scale: on this app's own 154-day export
+    /// the two disagreed enough to imply a timing score up to ~46 points different, one-sided.
+    /// Delegating to the engine's `habitualMidpointHour` makes divergence structurally
+    /// impossible instead of relying on the two copies being kept in sync by hand.
+    private static func midpointDeviationHours(for night: SleepPeriod, in database: Database, engine: ScoreEngine) -> Double {
+        let reference = engine.habitualMidpointHour(before: night.day, in: database) ?? engine.fallbackMidpointHour
+        var difference = abs(engine.hourOfDay(night.midpoint) - reference)
         if difference > 12 { difference = 24 - difference }
         return difference
     }

@@ -296,11 +296,13 @@ enum Fixtures {
         restless: Int = 20,
         latencyMinutes: Double = 15,
         restingHR: Double = 52,
-        hrv: Double = 60
+        hrv: Double = 60,
+        midpointHour: Double = 3
     ) -> SleepPeriod {
         let total = hours * 3600
-        // Bedtime chosen so the midpoint lands near 03:00, the engine's ideal.
-        let start = day.startOfDay().addingTimeInterval(3 * 3600 - total / 2)
+        // Bedtime chosen so the midpoint lands at `midpointHour` (03:00 by default, the
+        // engine's ideal).
+        let start = day.startOfDay().addingTimeInterval(midpointHour * 3600 - total / 2)
         return SleepPeriod(
             id: "sleep-\(day)",
             day: day,
@@ -405,6 +407,31 @@ final class CalibrationExportTests: XCTestCase {
     func testEmptyDatabaseStillEmitsAHeader() {
         let csv = CalibrationExport.csv(database: Database(), scores: [:])
         XCTAssertEqual(csv.trimmingCharacters(in: .whitespacesAndNewlines), CalibrationExport.columns.joined(separator: ","))
+    }
+
+    /// `midpoint_dev_hr` used to be computed against a hard-coded 3am reference, independent
+    /// of the personal rolling baseline the live `timing` contributor actually reads — so a
+    /// row exported for fitting was describing an input the score never saw. This nights the
+    /// person consistently at 06:00, where a habitual baseline has settled after five nights:
+    /// the exported deviation on night six must reflect that baseline, not a fixed clock.
+    func testMidpointDeviationMatchesTheEnginesPersonalBaselineNotAFixedClock() throws {
+        var database = Database()
+        let day = Day(year: 2026, month: 6, day: 20)
+        let range = Day.range(from: day.adding(days: -6), through: day)
+        database.sleep = range.map { Fixtures.night(day: $0, hours: 7.5, midpointHour: 6) }
+        database.activity = range.map { Fixtures.activity(day: $0, steps: 9000, activeCalories: 450) }
+
+        let csv = CalibrationExport.csv(
+            database: database, scores: ScoreEngine().allScores(in: database), warmUpDays: 0
+        )
+        let lastRow = try? XCTUnwrap(csv.split(separator: "\n").last.map(String.init))
+        let mpdIndex = CalibrationExport.columns.firstIndex(of: "midpoint_dev_hr") ?? 0
+        let deviation = Double((lastRow ?? "").components(separatedBy: ",")[safe: mpdIndex] ?? "")
+
+        let deviationHours = try XCTUnwrap(deviation)
+        // Against the personal baseline (~06:00) the deviation should be near zero. The old
+        // fixed-3am proxy would have reported roughly 3 here instead.
+        XCTAssertLessThan(deviationHours, 0.5, "exported deviation should track the habitual baseline, not a fixed 3am reference")
     }
 }
 
@@ -516,5 +543,63 @@ final class NewMetricTests: XCTestCase {
             VO2MaxDay(id: "b", day: Day(year: 2026, month: 5, day: 9), vo2Max: nil)
         ]
         XCTAssertEqual(database.latestVO2Max?.vo2Max, 44.0)
+    }
+}
+
+/// Guards the fitted `recoveryTime` level. The contributor is a step function rather than a
+/// curve, so its levels are easy to change without noticing what else reads them.
+final class RecoveryTimeContributorTests: XCTestCase {
+    private let engine = ScoreEngine()
+
+    private func recovery(in database: Database, on day: Day) throws -> Contributor {
+        let score = try XCTUnwrap(engine.activityScore(for: day, in: database))
+        return try XCTUnwrap(score.contributors.first { $0.id == "recoveryTime" })
+    }
+
+    func testAWellRecoveredDayScoresTheTopLevel() throws {
+        let day = Day(year: 2026, month: 8, day: 8)
+        var database = Database()
+        // No preceding days, so there is no recent load and nothing to recover from.
+        database.activity = [Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)]
+
+        let contributor = try recovery(in: database, on: day)
+        XCTAssertEqual(contributor.score, 100, accuracy: 0.001)
+        XCTAssertEqual(contributor.detail, "Well recovered")
+    }
+
+    func testRecentLoadStillCostsRecoveryPoints() throws {
+        let day = Day(year: 2026, month: 8, day: 8)
+        var database = Database()
+        // The fixture carries 300 MET-minutes a day, so two prior days clear the 500 threshold.
+        database.activity = [
+            Fixtures.activity(day: day.adding(days: -2), steps: 9_000, activeCalories: 400),
+            Fixtures.activity(day: day.adding(days: -1), steps: 9_000, activeCalories: 400),
+            Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)
+        ]
+
+        let contributor = try recovery(in: database, on: day)
+        XCTAssertEqual(contributor.score, 75, accuracy: 0.001)
+        XCTAssertEqual(contributor.detail, "Recovery still catching up")
+    }
+
+    /// The label is derived from the level, so refitting the level must not orphan it. This
+    /// is the assertion that survives a refit: whatever the top level becomes, the day that
+    /// reaches it is the day labelled "Well recovered".
+    func testTheLabelTracksWhateverTheTopLevelIs() throws {
+        let day = Day(year: 2026, month: 8, day: 8)
+        var database = Database()
+        database.activity = [Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)]
+        let unloaded = try recovery(in: database, on: day)
+
+        database.activity = [
+            Fixtures.activity(day: day.adding(days: -2), steps: 9_000, activeCalories: 400),
+            Fixtures.activity(day: day.adding(days: -1), steps: 9_000, activeCalories: 400),
+            Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)
+        ]
+        let loaded = try recovery(in: database, on: day)
+
+        XCTAssertGreaterThan(unloaded.score, loaded.score)
+        XCTAssertEqual(unloaded.detail, "Well recovered")
+        XCTAssertEqual(loaded.detail, "Recovery still catching up")
     }
 }

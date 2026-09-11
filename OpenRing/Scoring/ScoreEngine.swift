@@ -146,7 +146,12 @@ struct ScoreEngine {
         return difference
     }
 
-    private func hourOfDay(_ date: Date) -> Double {
+    /// Not private: `CalibrationExport` needs the same conversion so its `timing` predictor
+    /// matches what the live score actually reads. See `habitualMidpointHour` above — the
+    /// export had its own fixed-reference copy of this calculation for a long time, which
+    /// silently diverged from what `sleepScore` computes. Share this one instead of forking it
+    /// again.
+    func hourOfDay(_ date: Date) -> Double {
         let components = Calendar.current.dateComponents([.hour, .minute], from: date)
         return Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60
     }
@@ -357,20 +362,29 @@ struct ScoreEngine {
             .compactMap { database.activityDay($0)?.trainingMETMinutes }
             .reduce(0, +)
         let lastNightScore = sleepScore(for: day, in: database)?.value ?? 80
+
+        /// Not fitted. A September 2026 fit put this at 88, which raised the share of days
+        /// landing within 5 points of Oura (66.4% -> 71.3% held-out) while leaving mean error
+        /// unchanged at ~4.9 points and making bias slightly worse. That is a threshold metric
+        /// improving without the score getting more accurate, so it was backed out; the level
+        /// stays at 100 until it can be judged on mean error.
+        let wellRecovered: Double = 100
         let recoveryScore: Double
         if recentLoad > 500 && lastNightScore < 70 {
             recoveryScore = 45
         } else if recentLoad > 500 || lastNightScore < 70 {
             recoveryScore = 75
         } else {
-            recoveryScore = 100
+            recoveryScore = wellRecovered
         }
         contributors.append(Contributor(
             id: "recoveryTime",
             label: "Recovery time",
             score: recoveryScore,
             weight: 0.08,
-            detail: recoveryScore == 100 ? "Well recovered" : "Recovery still catching up"
+            // Compared against the constant rather than a literal, so refitting the level
+            // cannot silently leave every day labelled "Recovery still catching up".
+            detail: recoveryScore == wellRecovered ? "Well recovered" : "Recovery still catching up"
         ))
 
         let outcome = weightedScore(contributors)
