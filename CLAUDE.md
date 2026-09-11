@@ -7,7 +7,8 @@ three data sources, not the brain.
 ## Build and test
 
 Xcode 16+ opens this (`objectVersion = 77`). Deployment target iOS 17.0, Swift 5 language
-mode. **Do not accept Xcode's offer to upgrade the project format** — CI runs whatever Xcode
+mode. Verified building clean — no errors, no warnings — under Xcode 27.0 (27A266a) on
+macOS 27. **Do not accept Xcode's offer to upgrade the project format** — CI runs whatever Xcode
 ships on `macos-latest`, and bumping the format can leave the runner unable to open the
 project, which removes the fallback build path.
 
