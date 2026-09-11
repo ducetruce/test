@@ -71,6 +71,21 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             | tee xcodebuild.log
 
+      # Artifact downloads are not always reachable, so the diagnosis has to live in the
+      # job log itself — and near the end of it, where a tail will find it.
+      - name: Failure summary
+        if: failure()
+        run: |
+          echo "===================== COMPILE ERRORS ====================="
+          grep -E "error:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -60 || true
+          echo "===================== BUILD FAILURES ====================="
+          grep -E "^\*\* .* \*\*|The following build commands failed|Command .* failed" xcodebuild.log | sort -u | head -20 || true
+          echo "===================== TEST FAILURES ======================"
+          grep -E "Test Case .* (failed|error)|XCTAssert.* failed|Failing tests:|^\s+-\[.*\]$" xcodebuild.log | head -60 || true
+          echo "===================== WARNING SAMPLE ====================="
+          grep -E "warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -25 || true
+          echo "=========================================================="
+
       # The raw log is what makes a failed run diagnosable after the fact.
       - name: Upload build log
         if: always()
