@@ -33,7 +33,9 @@ final class AppModel: ObservableObject {
     private lazy var syncEngine = SyncEngine(store: store)
     private let engine = ScoreEngine()
 
-    init() {
+    /// `nonisolated` so `@StateObject private var model = AppModel()` is legal in the app's
+    /// property initializer, which is not main-actor isolated.
+    nonisolated init() {
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
         hasToken = !(Keychain.get(account: Self.tokenAccount) ?? "").isEmpty
     }

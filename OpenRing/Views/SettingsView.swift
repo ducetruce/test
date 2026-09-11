@@ -100,7 +100,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Advanced")
                 } footer: {
-                    Text("Reads the ring's history over Bluetooth with no cloud involved. Requires the ring's 16-byte auth key, which has to be extracted from the official app.")
+                    Text("Reads the ring's history over Bluetooth with no cloud involved. Needs the ring's 16-byte auth key — either extracted from the official app, or one you install yourself on a factory-reset ring.")
                 }
 
                 Section("Data") {

@@ -223,7 +223,7 @@ struct RingSyncView: View {
             if let pairingMessage {
                 Text(pairingMessage)
                     .font(.footnote)
-                    .foregroundStyle(pairingMessage.hasPrefix("Claimed") ? .green : .red)
+                    .foregroundStyle(pairingMessage.hasPrefix("Claimed") ? Color.green : Color.red)
             }
         } header: {
             Text("Claim a factory-reset ring")
@@ -238,7 +238,9 @@ struct RingSyncView: View {
 
     private func claimRing() async {
         // Persist before writing: a key that reaches the ring but not the Keychain is a
-        // ring you have locked yourself out of.
+        // ring you have locked yourself out of. Keep the old one so a refusal — the usual
+        // case on a ring that was never reset — does not destroy a key that still works.
+        let previousKey = model.ringKey
         model.saveRingKey(generatedKey)
         do {
             try await connection.installAuthKey(keyHex: generatedKey)
@@ -249,6 +251,7 @@ struct RingSyncView: View {
             generatedKey = ""
             keyIsBackedUp = false
         } catch {
+            model.saveRingKey(previousKey)
             pairingMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }

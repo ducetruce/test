@@ -76,11 +76,18 @@ final class RingConnection: NSObject, ObservableObject {
     private var notifyCharacteristic: CBCharacteristic?
     private var reader = RingProtocol.FrameReader()
 
-    /// One outstanding request at a time; the ring answers in order.
+    /// One outstanding request at a time; the ring answers in order. Each pending wait owns
+    /// a timeout task that resumes it, so nothing can be left suspended forever.
     private var pendingMatcher: ((RingProtocol.Frame) -> Bool)?
     private var pendingContinuation: CheckedContinuation<RingProtocol.Frame, Error>?
-    /// Frames that arrive while a drain is running are appended here instead of matched.
-    private var frameSink: ((RingProtocol.Frame) -> Void)?
+    private var pendingTimeout: Task<Void, Never>?
+
+    /// While a drain is running, frames are routed to the batch instead of the matcher.
+    private var isDraining = false
+    private var batchContinuation: CheckedContinuation<RingProtocol.EventSummary, Error>?
+    private var batchTimeout: Task<Void, Never>?
+    private var batchEvents: [RingEvent] = []
+    private var batchSequence = 0
 
     private var connectContinuation: CheckedContinuation<Void, Error>?
 
@@ -89,6 +96,12 @@ final class RingConnection: NSObject, ObservableObject {
     private let notifyUUID = CBUUID(string: RingProtocol.notifyCharacteristicUUID)
 
     // MARK: - Lifecycle
+
+    /// `nonisolated` so `@StateObject private var connection = RingConnection()` is legal in
+    /// a view's property initializer, which is not main-actor isolated.
+    nonisolated override init() {
+        super.init()
+    }
 
     func start() {
         guard central == nil else { return }
@@ -125,6 +138,8 @@ final class RingConnection: NSObject, ObservableObject {
     }
 
     func disconnect() {
+        failPendingRequest(RingError.notConnected)
+        failBatch(RingError.notConnected)
         if let peripheral { central?.cancelPeripheralConnection(peripheral) }
         peripheral = nil
         writeCharacteristic = nil
@@ -141,27 +156,42 @@ final class RingConnection: NSObject, ObservableObject {
         _ frame: RingProtocol.Frame,
         expecting matcher: @escaping (RingProtocol.Frame) -> Bool,
         timeout: TimeInterval = 8,
-        describedAs description: String
+        describedAs label: String
     ) async throws -> RingProtocol.Frame {
         guard let peripheral, let characteristic = writeCharacteristic else { throw RingError.notConnected }
+        guard pendingContinuation == nil else {
+            throw RingError.protocolError("another command is already in flight")
+        }
         note(frame.hexDump, direction: .out)
 
-        return try await withThrowingTaskGroup(of: RingProtocol.Frame.self) { group in
-            group.addTask { @MainActor in
-                try await withCheckedThrowingContinuation { continuation in
-                    self.pendingMatcher = matcher
-                    self.pendingContinuation = continuation
-                    peripheral.writeValue(frame.encoded, for: characteristic, type: .withoutResponse)
-                }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RingProtocol.Frame, Error>) in
+            pendingMatcher = matcher
+            pendingContinuation = continuation
+            pendingTimeout = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.failPendingRequest(RingError.timedOut(label))
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw RingError.timedOut(description)
-            }
-            guard let result = try await group.next() else { throw RingError.timedOut(description) }
-            group.cancelAll()
-            return result
+            peripheral.writeValue(frame.encoded, for: characteristic, type: .withoutResponse)
         }
+    }
+
+    private func resolvePendingRequest(with frame: RingProtocol.Frame) {
+        guard let continuation = pendingContinuation else { return }
+        pendingTimeout?.cancel()
+        pendingTimeout = nil
+        pendingContinuation = nil
+        pendingMatcher = nil
+        continuation.resume(returning: frame)
+    }
+
+    private func failPendingRequest(_ error: Error) {
+        guard let continuation = pendingContinuation else { return }
+        pendingTimeout?.cancel()
+        pendingTimeout = nil
+        pendingContinuation = nil
+        pendingMatcher = nil
+        continuation.resume(throwing: error)
     }
 
     /// Fire-and-forget: some setup commands are not acknowledged.
@@ -226,49 +256,58 @@ final class RingConnection: NSObject, ObservableObject {
         startingSequence: Int
     ) async throws -> (events: [RingEvent], summary: RingProtocol.EventSummary) {
         guard let peripheral, let characteristic = writeCharacteristic else { throw RingError.notConnected }
+        guard batchContinuation == nil else { throw RingError.protocolError("a drain is already running") }
 
-        var collected: [RingEvent] = []
-        var sequence = startingSequence
+        batchEvents = []
+        batchSequence = startingSequence
+        isDraining = true
+        defer { isDraining = false }
 
-        let summary = try await withThrowingTaskGroup(of: RingProtocol.EventSummary.self) { group in
-            group.addTask { @MainActor in
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RingProtocol.EventSummary, Error>) in
-                    var finished = false
-                    self.frameSink = { frame in
-                        guard !finished else { return }
-                        if RingProtocol.isUnauthorised(frame) {
-                            finished = true
-                            self.frameSink = nil
-                            continuation.resume(throwing: RingError.unauthorised)
-                            return
-                        }
-                        if let summary = RingProtocol.eventSummary(in: frame) {
-                            finished = true
-                            self.frameSink = nil
-                            continuation.resume(returning: summary)
-                            return
-                        }
-                        if let event = RingEvent.parse(frame: frame, sequence: sequence) {
-                            sequence += 1
-                            collected.append(event)
-                        }
-                    }
-                    let request = RingProtocol.getEvents(from: cursor, maxEvents: batchSize)
-                    self.note(request.hexDump, direction: .out)
-                    peripheral.writeValue(request.encoded, for: characteristic, type: .withoutResponse)
-                }
+        let request = RingProtocol.getEvents(from: cursor, maxEvents: batchSize)
+        note(request.hexDump, direction: .out)
+
+        let summary = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RingProtocol.EventSummary, Error>) in
+            batchContinuation = continuation
+            batchTimeout = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                self?.failBatch(RingError.timedOut("event batch"))
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw RingError.timedOut("event batch")
-            }
-            guard let result = try await group.next() else { throw RingError.timedOut("event batch") }
-            group.cancelAll()
-            return result
+            peripheral.writeValue(request.encoded, for: characteristic, type: .withoutResponse)
         }
+        return (batchEvents, summary)
+    }
 
-        frameSink = nil
-        return (collected, summary)
+    private func handleDrainFrame(_ frame: RingProtocol.Frame) {
+        guard batchContinuation != nil else { return }
+        if RingProtocol.isUnauthorised(frame) {
+            failBatch(RingError.unauthorised)
+            return
+        }
+        if let summary = RingProtocol.eventSummary(in: frame) {
+            resolveBatch(with: summary)
+            return
+        }
+        if let event = RingEvent.parse(frame: frame, sequence: batchSequence) {
+            batchSequence += 1
+            batchEvents.append(event)
+        }
+    }
+
+    private func resolveBatch(with summary: RingProtocol.EventSummary) {
+        guard let continuation = batchContinuation else { return }
+        batchTimeout?.cancel()
+        batchTimeout = nil
+        batchContinuation = nil
+        continuation.resume(returning: summary)
+    }
+
+    private func failBatch(_ error: Error) {
+        guard let continuation = batchContinuation else { return }
+        batchTimeout?.cancel()
+        batchTimeout = nil
+        batchContinuation = nil
+        continuation.resume(throwing: error)
     }
 
     // MARK: - Logging
@@ -330,10 +369,8 @@ extension RingConnection: @preconcurrency CBCentralManagerDelegate {
         isAuthenticated = false
         state = .idle
         // Fail anything still waiting rather than leaving it hung until timeout.
-        pendingContinuation?.resume(throwing: RingError.notConnected)
-        pendingContinuation = nil
-        pendingMatcher = nil
-        frameSink = nil
+        failPendingRequest(RingError.notConnected)
+        failBatch(RingError.notConnected)
     }
 }
 
@@ -376,15 +413,12 @@ extension RingConnection: @preconcurrency CBPeripheralDelegate {
         guard let data = characteristic.value, !data.isEmpty else { return }
         for frame in reader.append(data) {
             note(frame.hexDump, direction: .incoming)
-            if let sink = frameSink {
-                sink(frame)
+            if isDraining {
+                handleDrainFrame(frame)
                 continue
             }
             if let matcher = pendingMatcher, matcher(frame) {
-                pendingMatcher = nil
-                let continuation = pendingContinuation
-                pendingContinuation = nil
-                continuation?.resume(returning: frame)
+                resolvePendingRequest(with: frame)
             }
         }
     }

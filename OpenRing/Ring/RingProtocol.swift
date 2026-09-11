@@ -77,6 +77,11 @@ enum RingProtocol {
     struct FrameReader {
         private var buffer: [UInt8] = []
 
+        /// Explicit rather than synthesised: the memberwise initializer of a struct with a
+        /// private stored property is itself private, and being built from other files makes
+        /// that worth stating outright.
+        init() {}
+
         mutating func append(_ data: Data) -> [Frame] {
             buffer.append(contentsOf: data)
             var frames: [Frame] = []
@@ -226,7 +231,7 @@ enum RingProtocol {
             &output, output.count,
             &written
         )
-        guard status == kCCSuccess, written >= kCCBlockSizeAES128 else { return nil }
+        guard status == CCCryptorStatus(kCCSuccess), written >= kCCBlockSizeAES128 else { return nil }
         return Array(output[0..<kCCBlockSizeAES128])
     }
 

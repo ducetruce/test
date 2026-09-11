@@ -179,3 +179,44 @@ final class RingEventTests: XCTestCase {
         XCTAssertEqual(RingEventDecoder.kind(for: 0x02), .unknown)
     }
 }
+
+/// Guards the frame-routing invariants that the rewrite of the request machinery depends on.
+final class FrameReaderEdgeTests: XCTestCase {
+    func testEmptyAndPartialInputNeverYieldFrames() {
+        var reader = RingProtocol.FrameReader()
+        XCTAssertTrue(reader.append(Data()).isEmpty)
+        XCTAssertTrue(reader.append(Data([0x2F])).isEmpty)
+        XCTAssertEqual(reader.pendingByteCount, 1)
+    }
+
+    func testZeroLengthFrameIsStillAFrame() {
+        var reader = RingProtocol.FrameReader()
+        let frames = reader.append(Data([0x08, 0x00]))
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertTrue(frames[0].payload.isEmpty)
+    }
+
+    func testResetDropsPartialFrames() {
+        var reader = RingProtocol.FrameReader()
+        _ = reader.append(Data([0x11, 0x08, 0x01]))
+        reader.reset()
+        XCTAssertEqual(reader.pendingByteCount, 0)
+        XCTAssertTrue(reader.append(Data([0x08, 0x00])).count == 1)
+    }
+
+    func testMaximumLengthFrameRoundTrips() {
+        let payload = [UInt8](repeating: 0xCD, count: 255)
+        let encoded = RingProtocol.Frame(tag: 0x41, payload: payload).encoded
+        var reader = RingProtocol.FrameReader()
+        // Deliver it in MTU-sized chunks the way CoreBluetooth would.
+        var frames: [RingProtocol.Frame] = []
+        var offset = 0
+        while offset < encoded.count {
+            let end = min(offset + 180, encoded.count)
+            frames.append(contentsOf: reader.append(encoded.subdata(in: offset..<end)))
+            offset = end
+        }
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].payload.count, 255)
+    }
+}

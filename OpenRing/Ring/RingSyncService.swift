@@ -65,7 +65,8 @@ final class RingSyncService: ObservableObject {
     /// dropped connection costs one batch instead of the whole drain.
     private let batchSize: UInt8 = 64
 
-    init(store: RingCaptureStore = RingCaptureStore()) {
+    /// `nonisolated` so a view can build one in a property initializer.
+    nonisolated init(store: RingCaptureStore = RingCaptureStore()) {
         self.store = store
     }
 
