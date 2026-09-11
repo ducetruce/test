@@ -63,7 +63,11 @@ enum ExportImporter {
             ingest(records, into: &database, report: &report)
         }
 
-        guard report.totalImported > 0 else { throw ImportError.nothingRecognised }
+        // Rows that were recognised but skipped still count as understood: re-importing an
+        // export the API already covers is a no-op, not a failure.
+        guard report.totalImported > 0 || report.skippedExisting > 0 else {
+            throw ImportError.nothingRecognised
+        }
         return report
     }
 

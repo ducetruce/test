@@ -4,11 +4,19 @@ import Foundation
 enum CSVParser {
 
     static func rows(from text: String) -> [[String]] {
+        // Swift treats CR+LF as a single grapheme cluster, so a "\r\n" Character compares
+        // equal to neither "\r" nor "\n" and would fall through to the default branch —
+        // making every CRLF file, which is what most exporters emit, parse as one field.
+        // Normalising line endings up front is simpler than matching every variant below.
+        let normalised = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
         var rows: [[String]] = []
         var row: [String] = []
         var field = ""
         var inQuotes = false
-        var iterator = text.makeIterator()
+        var iterator = normalised.makeIterator()
         var pending: Character?
 
         func endField() {
@@ -46,8 +54,6 @@ enum CSVParser {
                 inQuotes = true
             case ",":
                 endField()
-            case "\r":
-                break
             case "\n":
                 endRow()
             default:
