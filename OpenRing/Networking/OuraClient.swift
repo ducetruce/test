@@ -2,18 +2,33 @@ import Foundation
 
 enum OuraError: LocalizedError {
     case missingToken
+    case notAuthorised
     case unauthorized
     case rateLimited
     case server(status: Int, body: String)
     case transport(Error)
     case decoding(Error)
+    case tokenNotRefreshable
+    case stateMismatch
+    case authorisationFailed(String)
+    case authorisationExpired(String)
 
     var errorDescription: String? {
         switch self {
         case .missingToken:
-            return "No Oura personal access token is configured."
+            return "No Oura credentials are configured."
+        case .notAuthorised:
+            return "Not connected to Oura yet. Sign in from Settings."
         case .unauthorized:
-            return "Oura rejected the token (401/403). Create a new personal access token and paste it again."
+            return "Oura rejected the credentials. Sign in again from Settings."
+        case .tokenNotRefreshable:
+            return "This is a legacy personal access token, which cannot be refreshed. Oura has stopped issuing these — connect with OAuth instead."
+        case .stateMismatch:
+            return "The sign-in response did not match the request and was discarded."
+        case .authorisationFailed(let detail):
+            return "Oura declined the authorisation: \(detail.prefix(200))"
+        case .authorisationExpired(let detail):
+            return "Your Oura authorisation is no longer valid and must be granted again. \(detail.prefix(160))"
         case .rateLimited:
             return "Oura rate-limited the request. Wait a minute and sync again."
         case .server(let status, let body):
@@ -28,7 +43,8 @@ enum OuraError: LocalizedError {
 
 /// Thin async wrapper over the Oura v2 REST API, authenticated with a personal access token.
 struct OuraClient {
-    var token: String
+    /// Supplies the bearer token and, for OAuth, can mint a fresh one after a 401.
+    var tokens: OuraTokenProviding
     var session: URLSession = .shared
 
     private static let baseURL = URL(string: "https://api.ouraring.com/v2/usercollection/")!
@@ -87,8 +103,8 @@ struct OuraClient {
         return page.compactMap { $0.map() }
     }
 
-    /// Cheap validation used by onboarding — any 2xx means the token works.
-    func validateToken() async throws {
+    /// Cheap validation used by onboarding — any 2xx means the credentials work.
+    func validateCredentials() async throws {
         _ = try await personalInfo()
     }
 
@@ -115,7 +131,6 @@ struct OuraClient {
     }
 
     private func get<Response: Decodable>(path: String, query: [URLQueryItem]) async throws -> Response {
-        guard !token.isEmpty else { throw OuraError.missingToken }
         guard var components = URLComponents(url: Self.baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
             throw OuraError.server(status: -1, body: "Bad URL for \(path)")
         }
@@ -124,24 +139,20 @@ struct OuraClient {
             throw OuraError.server(status: -1, body: "Bad URL for \(path)")
         }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 60
+        var accessToken = try await tokens.token()
+        var (data, status) = try await send(url: url, accessToken: accessToken)
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw OuraError.transport(error)
+        // One retry with a refreshed token: an access token can expire mid-sync, and a
+        // provider that cannot refresh throws, which leaves the original 401 intact.
+        if status == 401 || status == 403 {
+            guard let refreshed = try? await tokens.refreshedToken() else {
+                throw OuraError.unauthorized
+            }
+            accessToken = refreshed
+            (data, status) = try await send(url: url, accessToken: accessToken)
         }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw OuraError.server(status: -1, body: "Non-HTTP response")
-        }
-        switch http.statusCode {
+        switch status {
         case 200..<300:
             break
         case 401, 403:
@@ -149,13 +160,33 @@ struct OuraClient {
         case 429:
             throw OuraError.rateLimited
         default:
-            throw OuraError.server(status: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
+            throw OuraError.server(status: status, body: String(data: data, encoding: .utf8) ?? "")
         }
 
         do {
             return try Self.decoder.decode(Response.self, from: data)
         } catch {
             throw OuraError.decoding(error)
+        }
+    }
+
+    private func send(url: URL, accessToken: String) async throws -> (Data, Int) {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 60
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw OuraError.server(status: -1, body: "Non-HTTP response")
+            }
+            return (data, http.statusCode)
+        } catch let error as OuraError {
+            throw error
+        } catch {
+            throw OuraError.transport(error)
         }
     }
 }

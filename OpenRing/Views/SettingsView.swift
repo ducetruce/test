@@ -59,8 +59,8 @@ struct SettingsView: View {
                             LabeledContent("Age") { Text("\(age)").foregroundStyle(.secondary) }
                         }
                     }
-                    Button("Replace access token") { showingTokenSheet = true }
-                    Button("Sign out", role: .destructive) { model.signOut() }
+                    Button("Replace credentials") { showingTokenSheet = true }
+                    Button("Sign out", role: .destructive) { Task { await model.signOut() } }
                 }
 
                 Section {
@@ -182,11 +182,11 @@ struct TokenEntrySheet: View {
                     if let error {
                         Text(error).foregroundStyle(.red)
                     } else {
-                        Text("Create one at cloud.ouraring.com/personal-access-tokens.")
+                        Text("Oura no longer issues personal access tokens. This accepts one created before December 2025; otherwise sign out and reconnect with OAuth.")
                     }
                 }
             }
-            .navigationTitle("Access token")
+            .navigationTitle("Legacy token")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -197,11 +197,10 @@ struct TokenEntrySheet: View {
                         Task {
                             isChecking = true
                             defer { isChecking = false }
-                            if let failure = await model.validate(token: token) {
+                            if let failure = await model.saveLegacyToken(token) {
                                 error = failure
                                 return
                             }
-                            model.saveToken(token)
                             dismiss()
                             await model.sync()
                         }

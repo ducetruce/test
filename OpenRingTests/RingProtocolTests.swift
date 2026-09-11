@@ -220,3 +220,93 @@ final class FrameReaderEdgeTests: XCTestCase {
         XCTAssertEqual(frames.first?.payload.count, 255)
     }
 }
+
+/// OAuth2 request shapes, pinned so a refactor cannot silently change what Oura receives.
+final class OuraAuthTests: XCTestCase {
+    func testAuthorizationURLCarriesEveryRequiredParameter() throws {
+        let url = try XCTUnwrap(OuraAuth.authorizationURL(clientID: "abc123", state: "xyz"))
+        let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
+
+        XCTAssertEqual(url.host, "cloud.ouraring.com")
+        XCTAssertEqual(url.path, "/oauth/authorize")
+        XCTAssertEqual(value("response_type"), "code")
+        XCTAssertEqual(value("client_id"), "abc123")
+        XCTAssertEqual(value("state"), "xyz")
+        XCTAssertEqual(value("redirect_uri"), OuraAuth.redirectURI)
+        // Scopes are space separated in the OAuth2 spec, not comma separated.
+        XCTAssertEqual(value("scope"), OuraAuth.scopes.joined(separator: " "))
+    }
+
+    func testRedirectSchemeMatchesTheRegisteredURLType() {
+        XCTAssertEqual(URL(string: OuraAuth.redirectURI)?.scheme, "openring")
+    }
+
+    func testAuthorizationCodeIsExtractedWhenStateMatches() throws {
+        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=the-code&state=s1"))
+        XCTAssertEqual(try OuraAuth.authorizationCode(from: callback, expectedState: "s1"), "the-code")
+    }
+
+    /// A mismatched state is the signature of a forged redirect; the code must be discarded.
+    func testMismatchedStateIsRejected() throws {
+        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=the-code&state=attacker"))
+        XCTAssertThrowsError(try OuraAuth.authorizationCode(from: callback, expectedState: "s1")) { error in
+            guard case OuraError.stateMismatch = error else {
+                return XCTFail("expected stateMismatch, got \(error)")
+            }
+        }
+    }
+
+    func testMissingStateIsRejected() throws {
+        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?code=the-code"))
+        XCTAssertThrowsError(try OuraAuth.authorizationCode(from: callback, expectedState: "s1"))
+    }
+
+    func testDeclinedAuthorisationSurfacesOurasReason() throws {
+        let callback = try XCTUnwrap(URL(string: "openring://oauth-callback?error=access_denied&state=s1"))
+        XCTAssertThrowsError(try OuraAuth.authorizationCode(from: callback, expectedState: "s1")) { error in
+            guard case OuraError.authorisationFailed(let detail) = error else {
+                return XCTFail("expected authorisationFailed, got \(error)")
+            }
+            XCTAssertEqual(detail, "access_denied")
+        }
+    }
+
+    func testStatesAreUnguessableAndDistinct() {
+        let a = OuraAuth.makeState()
+        let b = OuraAuth.makeState()
+        XCTAssertNotEqual(a, b)
+        XCTAssertGreaterThanOrEqual(a.count, 16)
+    }
+
+    func testCredentialsExpireSlightlyEarly() {
+        let live = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "t",
+                                   refreshToken: "r", expiresAt: Date().addingTimeInterval(3600))
+        // Inside the one-minute safety margin, so it must already count as expired.
+        let expiring = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "t",
+                                       refreshToken: "r", expiresAt: Date().addingTimeInterval(30))
+        XCTAssertFalse(live.isExpired)
+        XCTAssertTrue(expiring.isExpired)
+    }
+
+    func testCredentialsRoundTripThroughJSON() throws {
+        let credentials = OuraCredentials(clientID: "id", clientSecret: "secret", accessToken: "access",
+                                          refreshToken: "refresh", expiresAt: Date(timeIntervalSince1970: 1_800_000_000))
+        let data = try JSONEncoder().encode(credentials)
+        XCTAssertEqual(try JSONDecoder().decode(OuraCredentials.self, from: data), credentials)
+    }
+
+    func testLegacyTokenCannotRefresh() async {
+        let provider = StaticToken(value: "legacy")
+        let token = try? await provider.token()
+        XCTAssertEqual(token, "legacy")
+        do {
+            _ = try await provider.refreshedToken()
+            XCTFail("a static token must not claim it can refresh")
+        } catch {
+            guard case OuraError.tokenNotRefreshable = error else {
+                return XCTFail("expected tokenNotRefreshable, got \(error)")
+            }
+        }
+    }
+}

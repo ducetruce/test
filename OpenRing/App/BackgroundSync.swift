@@ -14,8 +14,8 @@ enum BackgroundSync {
     }
 
     static func run() async {
-        guard let token = Keychain.get(account: AppModel.tokenAccount), !token.isEmpty else { return }
+        guard let tokens = await AuthResolver.currentProvider() else { return }
         let engine = SyncEngine(store: LocalStore())
-        _ = try? await engine.sync(token: token)
+        _ = try? await engine.sync(using: tokens)
     }
 }

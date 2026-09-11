@@ -28,22 +28,25 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: AppModel.onboardingKey) }
     }
 
-    /// Mirrors the Keychain so SwiftUI has something observable to react to.
-    @Published private(set) var hasToken: Bool = !(Keychain.get(account: AppModel.tokenAccount) ?? "").isEmpty
+    /// Mirrors the stored credentials so SwiftUI has something observable to react to.
+    /// Seeded from the legacy token synchronously; OAuth state arrives from `refreshConnection()`.
+    @Published private(set) var isConnected: Bool = !(Keychain.get(account: AppModel.tokenAccount) ?? "").isEmpty
 
     nonisolated private static let onboardingKey = "hasCompletedOnboarding"
 
+    private let signIn = OuraSignIn()
     private let store = LocalStore()
     private lazy var syncEngine = SyncEngine(store: store)
     private let engine = ScoreEngine()
 
-    var token: String? {
-        Keychain.get(account: Self.tokenAccount)
-    }
-
     var lastSync: Date? { database.lastSync }
 
     // MARK: - Lifecycle
+
+    /// OAuth credentials live behind an actor, so connection state has to be awaited.
+    func refreshConnection() async {
+        isConnected = await AuthResolver.hasCredentials()
+    }
 
     func loadFromDisk() async {
         await store.invalidateCache()
@@ -54,14 +57,14 @@ final class AppModel: ObservableObject {
     }
 
     func syncIfStale(maximumAge: TimeInterval = 30 * 60) async {
-        guard hasToken else { return }
+        guard isConnected else { return }
         if let last = database.lastSync, Date().timeIntervalSince(last) < maximumAge { return }
         await sync()
     }
 
     func sync(fullHistory: Bool = false) async {
-        guard let token, !token.isEmpty else {
-            errorMessage = OuraError.missingToken.localizedDescription
+        guard let tokens = await AuthResolver.currentProvider() else {
+            errorMessage = OuraError.notAuthorised.localizedDescription
             return
         }
         guard !isSyncing else { return }
@@ -70,7 +73,7 @@ final class AppModel: ObservableObject {
         defer { isSyncing = false }
 
         do {
-            let result = try await syncEngine.sync(token: token, fullHistory: fullHistory)
+            let result = try await syncEngine.sync(using: tokens, fullHistory: fullHistory)
             database = result.database
             warnings = result.warnings
             recomputeScores()
@@ -79,28 +82,40 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: - Token
+    // MARK: - Credentials
 
-    func saveToken(_ token: String) {
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        Keychain.set(trimmed, account: Self.tokenAccount)
-        hasToken = !trimmed.isEmpty
-    }
-
-    func validate(token: String) async -> String? {
-        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Paste a personal access token first." }
+    /// Runs the OAuth2 flow end to end. Returns an error message, or nil on success.
+    func connect(clientID: String, clientSecret: String) async -> String? {
         do {
-            try await OuraClient(token: trimmed).validateToken()
+            _ = try await signIn.run(clientID: clientID, clientSecret: clientSecret, auth: AuthResolver.auth)
+            isConnected = true
+            hasCompletedOnboarding = true
+            await sync(fullHistory: true)
             return nil
         } catch {
             return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
-    func signOut() {
+    /// Legacy path: a personal access token created before Oura stopped issuing them.
+    func saveLegacyToken(_ token: String) async -> String? {
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Paste a token first." }
+        do {
+            try await OuraClient(tokens: StaticToken(value: trimmed)).validateCredentials()
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+        Keychain.set(trimmed, account: Self.tokenAccount)
+        isConnected = true
+        hasCompletedOnboarding = true
+        return nil
+    }
+
+    func signOut() async {
         Keychain.delete(account: Self.tokenAccount)
-        hasToken = false
+        await AuthResolver.auth.signOut()
+        isConnected = false
         hasCompletedOnboarding = false
     }
 

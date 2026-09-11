@@ -16,7 +16,7 @@ struct SyncEngine {
         var warnings: [String]
     }
 
-    func sync(token: String, fullHistory: Bool = false) async throws -> Result {
+    func sync(using tokens: OuraTokenProviding, fullHistory: Bool = false) async throws -> Result {
         var database = await store.load()
         let today = Day.today
         let start: Day
@@ -28,7 +28,7 @@ struct SyncEngine {
             start = today.adding(days: -Self.initialBackfillDays)
         }
 
-        let client = OuraClient(token: token)
+        let client = OuraClient(tokens: tokens)
         var warnings: [String] = []
 
         // Core endpoints: a failure here is a real failure worth surfacing.

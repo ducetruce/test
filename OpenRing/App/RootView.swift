@@ -5,7 +5,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if !model.hasCompletedOnboarding || !model.hasToken {
+            if !model.hasCompletedOnboarding || !model.isConnected {
                 OnboardingView()
             } else {
                 TabView {

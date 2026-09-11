@@ -11,6 +11,7 @@ struct OpenRingApp: App {
                 .environmentObject(model)
                 .tint(Theme.readiness)
                 .task {
+                    await model.refreshConnection()
                     await model.loadFromDisk()
                     model.selectedDay = model.latestDayWithData
                     await model.syncIfStale()
@@ -19,6 +20,7 @@ struct OpenRingApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     guard phase == .active, model.isLoaded else { return }
                     Task {
+                        await model.refreshConnection()
                         await model.loadFromDisk()
                         await model.syncIfStale()
                     }
