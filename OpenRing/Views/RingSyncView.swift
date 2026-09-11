@@ -6,6 +6,7 @@ import CoreBluetooth
 /// This path needs the ring's 16-byte auth key, which only exists because the official app
 /// generated it during pairing. There is no way to derive it, so the screen is explicit that
 /// you must bring your own.
+@MainActor
 struct RingSyncView: View {
     @EnvironmentObject private var model: AppModel
     @StateObject private var connection = RingConnection()
@@ -69,7 +70,7 @@ struct RingSyncView: View {
     }
 
     private var keySection: some View {
-        Section("Auth key") {
+        Section {
             SecureField("32 hex characters", text: $keyHex)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -82,6 +83,8 @@ struct RingSyncView: View {
                 Button("Save") { model.saveRingKey(keyHex) }
                     .disabled(!keyStatus.isValid)
             }
+        } header: {
+            Text("Auth key")
         }
     }
 

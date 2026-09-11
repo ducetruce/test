@@ -6,8 +6,8 @@ import SwiftUI
 /// usable with no network.
 @MainActor
 final class AppModel: ObservableObject {
-    static let tokenAccount = "oura-personal-access-token"
-    static let ringKeyAccount = "oura-ring-auth-key"
+    nonisolated static let tokenAccount = "oura-personal-access-token"
+    nonisolated static let ringKeyAccount = "oura-ring-auth-key"
 
     @Published private(set) var database = Database()
     @Published private(set) var scores: [Day: DayScores] = [:]
@@ -27,15 +27,13 @@ final class AppModel: ObservableObject {
     /// Mirrors the Keychain so SwiftUI has something observable to react to.
     @Published private(set) var hasToken: Bool
 
-    private static let onboardingKey = "hasCompletedOnboarding"
+    private nonisolated static let onboardingKey = "hasCompletedOnboarding"
 
     private let store = LocalStore()
     private lazy var syncEngine = SyncEngine(store: store)
     private let engine = ScoreEngine()
 
-    /// `nonisolated` so `@StateObject private var model = AppModel()` is legal in the app's
-    /// property initializer, which is not main-actor isolated.
-    nonisolated init() {
+    init() {
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: Self.onboardingKey)
         hasToken = !(Keychain.get(account: Self.tokenAccount) ?? "").isEmpty
     }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 @main
+@MainActor
 struct OpenRingApp: App {
     @StateObject private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
