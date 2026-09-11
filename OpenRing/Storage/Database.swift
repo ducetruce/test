@@ -11,6 +11,14 @@ struct Database: Codable {
     var spo2: [SpO2Day] = []
     var stress: [StressDay] = []
     var workouts: [Workout] = []
+    var cardiovascularAge: [CardiovascularAgeDay] = []
+    var resilience: [ResilienceDay] = []
+    var vo2Max: [VO2MaxDay] = []
+    var sleepTimes: [SleepTimeDay] = []
+    var sessions: [MomentSession] = []
+    var tags: [DayTag] = []
+    var restModePeriods: [RestModePeriod] = []
+    var ringInfo: RingInfo?
     var lastSync: Date?
     var earliestSynced: Day?
 
@@ -44,6 +52,17 @@ struct Database: Codable {
     func spo2Day(_ day: Day) -> SpO2Day? { spo2.first { $0.day == day } }
     func stressDay(_ day: Day) -> StressDay? { stress.first { $0.day == day } }
     func workoutSessions(_ day: Day) -> [Workout] { workouts.filter { $0.day == day } }
+    func cardiovascularAgeDay(_ day: Day) -> CardiovascularAgeDay? { cardiovascularAge.first { $0.day == day } }
+    func resilienceDay(_ day: Day) -> ResilienceDay? { resilience.first { $0.day == day } }
+    func sleepTimeDay(_ day: Day) -> SleepTimeDay? { sleepTimes.first { $0.day == day } }
+    func sessionsOn(_ day: Day) -> [MomentSession] { sessions.filter { $0.day == day } }
+    func tagsOn(_ day: Day) -> [DayTag] { tags.filter { $0.day == day } }
+
+    /// VO2 max is measured occasionally, so the useful value is the most recent one.
+    var latestVO2Max: VO2MaxDay? { vo2Max.filter { $0.vo2Max != nil }.max { $0.day < $1.day } }
+    var latestCardiovascularAge: CardiovascularAgeDay? {
+        cardiovascularAge.filter { $0.vascularAge != nil }.max { $0.day < $1.day }
+    }
 
     // MARK: - Merging
 
@@ -54,7 +73,14 @@ struct Database: Codable {
         readiness newReadiness: [ReadinessDay] = [],
         spo2 newSpO2: [SpO2Day] = [],
         stress newStress: [StressDay] = [],
-        workouts newWorkouts: [Workout] = []
+        workouts newWorkouts: [Workout] = [],
+        cardiovascularAge newCVA: [CardiovascularAgeDay] = [],
+        resilience newResilience: [ResilienceDay] = [],
+        vo2Max newVO2: [VO2MaxDay] = [],
+        sleepTimes newSleepTimes: [SleepTimeDay] = [],
+        sessions newSessions: [MomentSession] = [],
+        tags newTags: [DayTag] = [],
+        restModePeriods newRest: [RestModePeriod] = []
     ) {
         self.sleep = Database.upsert(self.sleep, with: newSleep, day: { $0.day })
         self.activity = Database.upsert(self.activity, with: newActivity, day: { $0.day })
@@ -62,6 +88,13 @@ struct Database: Codable {
         self.spo2 = Database.upsert(self.spo2, with: newSpO2, day: { $0.day })
         self.stress = Database.upsert(self.stress, with: newStress, day: { $0.day })
         self.workouts = Database.upsert(self.workouts, with: newWorkouts, day: { $0.day })
+        self.cardiovascularAge = Database.upsert(self.cardiovascularAge, with: newCVA, day: { $0.day })
+        self.resilience = Database.upsert(self.resilience, with: newResilience, day: { $0.day })
+        self.vo2Max = Database.upsert(self.vo2Max, with: newVO2, day: { $0.day })
+        self.sleepTimes = Database.upsert(self.sleepTimes, with: newSleepTimes, day: { $0.day })
+        self.sessions = Database.upsert(self.sessions, with: newSessions, day: { $0.day })
+        self.tags = Database.upsert(self.tags, with: newTags, day: { $0.day })
+        self.restModePeriods = Database.upsert(self.restModePeriods, with: newRest, day: { $0.start ?? Day.today })
     }
 
     /// Attach cloud sleep scores (from `daily_sleep`) to the matching nights.

@@ -106,6 +106,57 @@ struct OuraClient {
         return page.compactMap { $0.map() }
     }
 
+    func cardiovascularAge(from start: Day, to end: Day) async throws -> [CardiovascularAgeDay] {
+        let page: [OuraDTO.DailyCardiovascularAge] = try await collect(path: "daily_cardiovascular_age", from: start, to: end)
+        return page.compactMap { $0.map() }
+    }
+
+    func resilience(from start: Day, to end: Day) async throws -> [ResilienceDay] {
+        let page: [OuraDTO.DailyResilience] = try await collect(path: "daily_resilience", from: start, to: end)
+        return page.compactMap { $0.map() }
+    }
+
+    func vo2Max(from start: Day, to end: Day) async throws -> [VO2MaxDay] {
+        let page: [OuraDTO.VO2Max] = try await collect(path: "vO2_max", from: start, to: end)
+        return page.compactMap { $0.map() }
+    }
+
+    func sleepTime(from start: Day, to end: Day) async throws -> [SleepTimeDay] {
+        let page: [OuraDTO.SleepTime] = try await collect(path: "sleep_time", from: start, to: end)
+        return page.compactMap { $0.map() }
+    }
+
+    func sessions(from start: Day, to end: Day) async throws -> [MomentSession] {
+        let page: [OuraDTO.SessionDTO] = try await collect(path: "session", from: start, to: end)
+        return page.compactMap { $0.map() }
+    }
+
+    /// `enhanced_tag` supersedes `tag`; fall back so older entries are not lost.
+    func tags(from start: Day, to end: Day) async throws -> [DayTag] {
+        if let enhanced: [OuraDTO.TagDTO] = try? await collect(path: "enhanced_tag", from: start, to: end),
+           !enhanced.isEmpty {
+            return enhanced.compactMap { $0.map() }
+        }
+        let page: [OuraDTO.TagDTO] = try await collect(path: "tag", from: start, to: end)
+        return page.compactMap { $0.map() }
+    }
+
+    func restModePeriods(from start: Day, to end: Day) async throws -> [RestModePeriod] {
+        let page: [OuraDTO.RestModePeriodDTO] = try await collect(path: "rest_mode_period", from: start, to: end)
+        return page.compactMap { $0.map() }
+    }
+
+    /// Ring hardware and battery are separate endpoints with no date range.
+    func ringInfo() async throws -> RingInfo {
+        let page: OuraDTO.Page<OuraDTO.RingConfiguration> = try await get(path: "ring_configuration", query: [])
+        let battery: OuraDTO.RingBattery? = try? await get(path: "ring_battery_level", query: [])
+        guard let latest = page.data.last else {
+            return RingInfo(id: nil, design: nil, colour: nil, hardwareType: nil, size: nil,
+                            batteryPercentage: battery?.batteryLevel, updatedAt: nil)
+        }
+        return latest.map(battery: battery?.batteryLevel)
+    }
+
     /// Cheap validation used by onboarding — any 2xx means the credentials work.
     func validateCredentials() async throws {
         _ = try await personalInfo()

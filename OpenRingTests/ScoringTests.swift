@@ -413,3 +413,108 @@ private extension Array {
         indices.contains(index) ? self[index] : nil
     }
 }
+
+final class HabitualMidpointTests: XCTestCase {
+    private let engine = ScoreEngine()
+
+    /// A plain mean of midnight-adjacent times lands at midday; the circular mean must not.
+    func testCircularMeanHandlesMidnightWrap() throws {
+        let day = Day(year: 2026, month: 5, day: 20)
+        var database = Database()
+        database.sleep = Day.range(from: day.adding(days: -10), through: day.adding(days: -1)).enumerated().map { index, d in
+            var night = Fixtures.night(day: d, hours: 8)
+            // Midpoints alternating either side of midnight: 23:30 and 00:30.
+            let offset: TimeInterval = index.isMultiple(of: 2) ? -30 * 60 : 30 * 60
+            let midnight = d.startOfDay()
+            night.bedtimeStart = midnight.addingTimeInterval(offset - 4 * 3600)
+            night.bedtimeEnd = night.bedtimeStart.addingTimeInterval(8 * 3600)
+            return night
+        }
+        let mean = try XCTUnwrap(engine.habitualMidpointHour(before: day, in: database))
+        // Must be near 00:00, not near 12:00.
+        let distanceToMidnight = min(mean, 24 - mean)
+        XCTAssertLessThan(distanceToMidnight, 1.0, "circular mean landed at \(mean)")
+    }
+
+    func testFallsBackWhenHistoryIsTooThin() {
+        let day = Day(year: 2026, month: 5, day: 20)
+        var database = Database()
+        database.sleep = [Fixtures.night(day: day.adding(days: -1), hours: 8)]
+        XCTAssertNil(engine.habitualMidpointHour(before: day, in: database))
+    }
+
+    /// A consistent late sleeper should not be penalised for being consistently late.
+    func testConsistentLateSleeperIsNotPunished() throws {
+        let day = Day(year: 2026, month: 5, day: 20)
+        var database = Database()
+        func lateNight(_ d: Day) -> SleepPeriod {
+            var night = Fixtures.night(day: d, hours: 7.5)
+            // Midpoint at 05:00 rather than the old fixed 03:00 target.
+            night.bedtimeStart = d.startOfDay().addingTimeInterval(5 * 3600 - night.timeInBed / 2)
+            night.bedtimeEnd = night.bedtimeStart.addingTimeInterval(night.timeInBed)
+            return night
+        }
+        database.sleep = Day.range(from: day.adding(days: -14), through: day).map(lateNight)
+
+        let score = try XCTUnwrap(engine.sleepScore(for: day, in: database))
+        let timing = try XCTUnwrap(score.contributors.first { $0.id == "timing" })
+        XCTAssertGreaterThan(timing.score, 90, "a consistent schedule should score well wherever it sits")
+    }
+}
+
+final class NewMetricTests: XCTestCase {
+    func testBedtimeWindowConvertsOffsetsFromMidnight() {
+        let day = Day(year: 2026, month: 5, day: 20)
+        // -3600 is 23:00 the previous evening; 5400 is 01:30.
+        let sleepTime = SleepTimeDay(id: "s", day: day, status: "optimal", recommendation: nil,
+                                     optimalBedtimeStartOffset: -3600, optimalBedtimeEndOffset: 5400)
+        let window = sleepTime.window
+        XCTAssertEqual(window?.start, "23:00")
+        XCTAssertEqual(window?.end, "01:30")
+    }
+
+    func testBedtimeWindowIsNilWithoutBothOffsets() {
+        let day = Day(year: 2026, month: 5, day: 20)
+        XCTAssertNil(SleepTimeDay(id: "s", day: day, status: nil, recommendation: nil,
+                                  optimalBedtimeStartOffset: nil, optimalBedtimeEndOffset: 900).window)
+    }
+
+    func testTagCodesBecomeReadableLabels() {
+        let tag = DayTag(id: "t", day: Day.today,
+                         codes: ["tag_generic_alcohol", "tag_generic_stress"], comment: "one glass", start: nil)
+        XCTAssertEqual(tag.labels, ["Alcohol", "Stress"])
+    }
+
+    func testResilienceDecodesItsContributors() throws {
+        let json = """
+        {"data":[{"id":"r1","day":"2026-05-20","level":"strong",
+          "contributors":{"sleep_recovery":78.5,"daytime_recovery":66.0,"stress":51.2}}]}
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let page = try decoder.decode(OuraDTO.Page<OuraDTO.DailyResilience>.self, from: Data(json.utf8))
+        let mapped = try XCTUnwrap(page.data.first?.map())
+        XCTAssertEqual(mapped.level, "strong")
+        XCTAssertEqual(mapped.sleepRecovery ?? 0, 78.5, accuracy: 0.001)
+        XCTAssertEqual(mapped.daytimeRecovery ?? 0, 66.0, accuracy: 0.001)
+    }
+
+    func testCardiovascularAgeDecodes() throws {
+        let json = """
+        {"data":[{"id":"c1","day":"2026-05-20","vascular_age":31.4}]}
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let page = try decoder.decode(OuraDTO.Page<OuraDTO.DailyCardiovascularAge>.self, from: Data(json.utf8))
+        XCTAssertEqual(try XCTUnwrap(page.data.first?.map()).vascularAge ?? 0, 31.4, accuracy: 0.001)
+    }
+
+    func testLatestVO2MaxIgnoresEmptyDays() {
+        var database = Database()
+        database.vo2Max = [
+            VO2MaxDay(id: "a", day: Day(year: 2026, month: 5, day: 1), vo2Max: 44.0),
+            VO2MaxDay(id: "b", day: Day(year: 2026, month: 5, day: 9), vo2Max: nil)
+        ]
+        XCTAssertEqual(database.latestVO2Max?.vo2Max, 44.0)
+    }
+}

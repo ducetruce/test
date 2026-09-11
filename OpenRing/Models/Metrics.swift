@@ -211,6 +211,98 @@ struct Workout: Codable, Hashable, Identifiable {
     var duration: TimeInterval { end.timeIntervalSince(start) }
 }
 
+/// Oura's estimate of cardiovascular age, in years, against chronological age.
+struct CardiovascularAgeDay: Codable, Hashable, Identifiable {
+    var id: String
+    var day: Day
+    var vascularAge: Double?
+}
+
+/// How well recent recovery has kept up with recent load. Oura reports a level
+/// ("solid", "strong"…) plus the three contributors behind it.
+struct ResilienceDay: Codable, Hashable, Identifiable {
+    var id: String
+    var day: Day
+    var level: String?
+    var sleepRecovery: Double?
+    var daytimeRecovery: Double?
+    var stress: Double?
+}
+
+struct VO2MaxDay: Codable, Hashable, Identifiable {
+    var id: String
+    var day: Day
+    var vo2Max: Double?
+}
+
+/// The bedtime window Oura recommends, and whether it had enough data to recommend one.
+struct SleepTimeDay: Codable, Hashable, Identifiable {
+    var id: String
+    var day: Day
+    var status: String?
+    var recommendation: String?
+    var optimalBedtimeStartOffset: Int?
+    var optimalBedtimeEndOffset: Int?
+
+    /// Offsets are seconds from midnight and can be negative (before midnight).
+    var window: (start: String, end: String)? {
+        guard let startOffset = optimalBedtimeStartOffset, let endOffset = optimalBedtimeEndOffset else { return nil }
+        return (Self.clock(startOffset), Self.clock(endOffset))
+    }
+
+    private static func clock(_ secondsFromMidnight: Int) -> String {
+        var seconds = secondsFromMidnight % 86_400
+        if seconds < 0 { seconds += 86_400 }
+        return String(format: "%02d:%02d", seconds / 3600, (seconds % 3600) / 60)
+    }
+}
+
+/// A guided session: breathing, meditation, relaxation, rest.
+struct MomentSession: Codable, Hashable, Identifiable {
+    var id: String
+    var day: Day
+    var type: String
+    var mood: String?
+    var start: Date
+    var end: Date
+
+    var duration: TimeInterval { end.timeIntervalSince(start) }
+}
+
+/// A tag the wearer attached to a day — caffeine, alcohol, illness, travel.
+struct DayTag: Codable, Hashable, Identifiable {
+    var id: String
+    var day: Day
+    var codes: [String]
+    var comment: String?
+    var start: Date?
+
+    /// Oura's codes look like `tag_generic_alcohol`; the last component is the readable part.
+    var labels: [String] {
+        codes.map { code in
+            code.split(separator: "_").last.map { $0.replacingOccurrences(of: "-", with: " ").capitalized }
+                ?? code
+        }
+    }
+}
+
+struct RestModePeriod: Codable, Hashable, Identifiable {
+    var id: String
+    var start: Day?
+    var end: Day?
+    var episodeCount: Int
+}
+
+struct RingInfo: Codable, Hashable {
+    var id: String?
+    var design: String?
+    var colour: String?
+    var hardwareType: String?
+    var size: Int?
+    var batteryPercentage: Int?
+    var updatedAt: Date?
+}
+
 struct PersonalInfo: Codable, Hashable {
     var id: String?
     var age: Int?

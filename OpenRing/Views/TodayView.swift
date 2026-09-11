@@ -140,12 +140,40 @@ struct TodayView: View {
                     StatTile(label: "Steps", value: Format.integer(activity.steps), caption: nil, tint: Theme.activity)
                     StatTile(label: "Active calories", value: "\(Int(activity.activeCalories.rounded())) kcal", caption: "Target \(Int(activity.targetCalories.rounded()))", tint: Theme.activity)
                 }
+                if let stress = model.database.stressDay(day) {
+                    if let high = stress.stressHigh {
+                        StatTile(label: "Stressful time", value: Format.duration(high), caption: stress.summary?.replacingOccurrences(of: "_", with: " ").capitalized, tint: Theme.activity)
+                    }
+                    if let recovery = stress.recoveryHigh {
+                        StatTile(label: "Restorative time", value: Format.duration(recovery), caption: nil, tint: Theme.readiness)
+                    }
+                }
+                if let resilience = model.database.resilienceDay(day), let level = resilience.level {
+                    StatTile(label: "Resilience", value: level.replacingOccurrences(of: "_", with: " ").capitalized, caption: nil, tint: Theme.readiness)
+                }
+                if let cva = model.database.latestCardiovascularAge?.vascularAge {
+                    StatTile(label: "Cardiovascular age", value: "\(Int(cva.rounded())) yrs", caption: ageCaption(cva), tint: Theme.readiness)
+                }
+                if let vo2 = model.database.latestVO2Max?.vo2Max {
+                    StatTile(label: "VO₂ max", value: Format.number(vo2, decimals: 1), caption: "ml/kg/min", tint: Theme.activity)
+                }
+                if let window = model.database.sleepTimeDay(day)?.window {
+                    StatTile(label: "Ideal bedtime", value: "\(window.start)–\(window.end)", caption: nil, tint: Theme.sleep)
+                }
             }
         }
     }
 
     private var baselines: ScoreEngine.Baselines {
         ScoreEngine().baselines(before: day, in: model.database)
+    }
+
+    /// Cardiovascular age only means something next to actual age.
+    private func ageCaption(_ vascularAge: Double) -> String? {
+        guard let age = model.database.personalInfo?.age else { return nil }
+        let delta = Int(vascularAge.rounded()) - age
+        if delta == 0 { return "Same as your age" }
+        return delta < 0 ? "\(-delta) yrs younger than you" : "\(delta) yrs older than you"
     }
 
     private func baselineCaption(value: Double, baseline: Double?, unit: String) -> String? {
@@ -159,8 +187,10 @@ struct TodayView: View {
     private var napsAndWorkouts: some View {
         let naps = model.database.naps(on: day)
         let workouts = model.database.workoutSessions(day)
+        let sessions = model.database.sessionsOn(day)
+        let tags = model.database.tagsOn(day)
 
-        if !naps.isEmpty || !workouts.isEmpty {
+        if !naps.isEmpty || !workouts.isEmpty || !sessions.isEmpty || !tags.isEmpty {
             SectionCard("Also today") {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(naps) { nap in
@@ -178,6 +208,20 @@ struct TodayView: View {
                         } label: {
                             Label(workout.label ?? workout.activity.capitalized, systemImage: "figure.run")
                         }
+                    }
+                    ForEach(sessions) { session in
+                        LabeledContent {
+                            Text(Format.duration(session.duration))
+                                .monospacedDigit()
+                        } label: {
+                            Label(session.type.replacingOccurrences(of: "_", with: " ").capitalized, systemImage: "wind")
+                        }
+                    }
+                    ForEach(tags) { tag in
+                        Label(
+                            tag.labels.joined(separator: ", ") + (tag.comment.map { " — \($0)" } ?? ""),
+                            systemImage: "tag"
+                        )
                     }
                 }
                 .font(.subheadline)

@@ -47,6 +47,27 @@ struct SyncEngine {
         let workouts = try? await client.workouts(from: start, to: today)
         let personalInfo = try? await client.personalInfo()
 
+        // Newer metrics. Not every account or ring generation returns these, and a plan
+        // that lacks one should not fail the whole sync, so each is independently optional.
+        let cardiovascularAge = try? await client.cardiovascularAge(from: start, to: today)
+        let resilience = try? await client.resilience(from: start, to: today)
+        let vo2Max = try? await client.vo2Max(from: start, to: today)
+        let sleepTimes = try? await client.sleepTime(from: start, to: today)
+        let sessions = try? await client.sessions(from: start, to: today)
+        let tags = try? await client.tags(from: start, to: today)
+        let restModes = try? await client.restModePeriods(from: start, to: today)
+        let ringInfo = try? await client.ringInfo()
+
+        for (name, missing) in [("Cardiovascular age", cardiovascularAge == nil),
+                                ("Resilience", resilience == nil),
+                                ("VO2 max", vo2Max == nil),
+                                ("Bedtime guidance", sleepTimes == nil),
+                                ("Guided sessions", sessions == nil),
+                                ("Tags", tags == nil),
+                                ("Ring details", ringInfo == nil)] where missing {
+            warnings.append("\(name) unavailable on this account")
+        }
+
         if spo2 == nil { warnings.append("Blood oxygen data unavailable") }
         if stress == nil { warnings.append("Daytime stress data unavailable") }
         if workouts == nil { warnings.append("Workout data unavailable") }
@@ -58,8 +79,16 @@ struct SyncEngine {
             readiness: readiness,
             spo2: spo2 ?? [],
             stress: stress ?? [],
-            workouts: workouts ?? []
+            workouts: workouts ?? [],
+            cardiovascularAge: cardiovascularAge ?? [],
+            resilience: resilience ?? [],
+            vo2Max: vo2Max ?? [],
+            sleepTimes: sleepTimes ?? [],
+            sessions: sessions ?? [],
+            tags: tags ?? [],
+            restModePeriods: restModes ?? []
         )
+        if let ringInfo { database.ringInfo = ringInfo }
         database.applyCloudSleepScores(dailySleepScores)
         if let personalInfo { database.personalInfo = personalInfo }
         database.lastSync = Date()

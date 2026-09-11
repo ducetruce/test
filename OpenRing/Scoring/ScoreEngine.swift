@@ -19,8 +19,9 @@ struct ScoreEngine {
 
     /// How much sleep the model treats as "a full night" for balance calculations.
     var sleepNeedHours: Double = 7.5
-    /// Ideal sleep midpoint, as an hour of the day (3.0 == 03:00).
-    var idealMidpointHour: Double = 3.0
+    /// Fallback sleep midpoint, as an hour of the day (3.0 == 03:00), used only until
+    /// there is enough history to know the wearer's own habitual midpoint.
+    var fallbackMidpointHour: Double = 3.0
     /// Weekly training target in MET-minutes of medium+high activity.
     var weeklyMETMinuteTarget: Double = 2000
 
@@ -112,13 +113,13 @@ struct ScoreEngine {
             detail: "\(Int(latencyMinutes.rounded())) min to fall asleep"
         ))
 
-        let midpointDeviation = midpointDeviationHours(for: night)
+        let midpointDeviation = midpointDeviationHours(for: night, in: database)
         contributors.append(Contributor(
             id: "timing",
             label: "Timing",
-            score: Curve.score(midpointDeviation, [(0, 100), (0.5, 79), (1, 66), (2, 65), (3, 63), (4, 61), (6, 6)]),
+            score: Curve.score(midpointDeviation, [(0, 100), (0.5, 96), (1, 88), (1.5, 76), (2.5, 55), (4, 30), (6, 10)]),
             weight: 0.10,
-            detail: "Midpoint \(Format.clockTime(night.midpoint))"
+            detail: "Midpoint \(Format.clockTime(night.midpoint)), \(String(format: "%.1f", midpointDeviation)) h off your usual"
         ))
 
         let outcome = weightedScore(contributors)
@@ -131,15 +132,43 @@ struct ScoreEngine {
         )
     }
 
-    /// Distance in hours between the night's midpoint and the ideal midpoint, measured
-    /// around the clock so 23:00 and 01:00 are 2 hours apart, not 22.
-    private func midpointDeviationHours(for night: SleepPeriod) -> Double {
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.hour, .minute], from: night.midpoint)
-        let hour = Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60
-        var difference = abs(hour - idealMidpointHour)
+    /// Distance in hours between the night's midpoint and the wearer's *own* habitual
+    /// midpoint, measured around the clock so 23:00 and 01:00 are 2 hours apart, not 22.
+    ///
+    /// Originally this compared against a fixed 03:00, which fitting against real data
+    /// exposed as the wrong question: the contributor came out nearly flat, because a
+    /// consistent late sleeper is not being punished by Oura for being late. What matters
+    /// is drifting off your own schedule, not missing someone else's.
+    private func midpointDeviationHours(for night: SleepPeriod, in database: Database) -> Double {
+        let reference = habitualMidpointHour(before: night.day, in: database) ?? fallbackMidpointHour
+        var difference = abs(hourOfDay(night.midpoint) - reference)
         if difference > 12 { difference = 24 - difference }
         return difference
+    }
+
+    private func hourOfDay(_ date: Date) -> Double {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60
+    }
+
+    /// Circular mean of the trailing midpoints. A plain average is wrong here: midnights
+    /// either side of 00:00 would average to midday.
+    func habitualMidpointHour(before day: Day, in database: Database, days: Int = 14) -> Double? {
+        let hours = Day.range(from: day.adding(days: -days), through: day.adding(days: -1))
+            .compactMap { database.mainSleep(on: $0) }
+            .map { hourOfDay($0.midpoint) }
+        guard hours.count >= 5 else { return nil }
+
+        var x = 0.0, y = 0.0
+        for hour in hours {
+            let angle = hour / 24 * 2 * .pi
+            x += cos(angle)
+            y += sin(angle)
+        }
+        guard x != 0 || y != 0 else { return nil }
+        var mean = atan2(y, x)
+        if mean < 0 { mean += 2 * .pi }
+        return mean / (2 * .pi) * 24
     }
 
     // MARK: - Readiness

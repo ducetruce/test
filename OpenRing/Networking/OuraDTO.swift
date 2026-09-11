@@ -221,6 +221,142 @@ enum OuraDTO {
         }
     }
 
+    struct DailyCardiovascularAge: Decodable {
+        var id: String?
+        var day: String
+        var vascularAge: Double?
+
+        func map() -> CardiovascularAgeDay? {
+            guard let day = Day(day) else { return nil }
+            return CardiovascularAgeDay(id: id ?? "cva-\(day)", day: day, vascularAge: vascularAge)
+        }
+    }
+
+    struct DailyResilience: Decodable {
+        struct Contributors: Decodable {
+            var sleepRecovery: Double?
+            var daytimeRecovery: Double?
+            var stress: Double?
+        }
+        var id: String?
+        var day: String
+        var level: String?
+        var contributors: Contributors?
+
+        func map() -> ResilienceDay? {
+            guard let day = Day(day) else { return nil }
+            return ResilienceDay(
+                id: id ?? "res-\(day)", day: day, level: level,
+                sleepRecovery: contributors?.sleepRecovery,
+                daytimeRecovery: contributors?.daytimeRecovery,
+                stress: contributors?.stress
+            )
+        }
+    }
+
+    struct VO2Max: Decodable {
+        var id: String?
+        var day: String
+        var vo2Max: Double?
+
+        func map() -> VO2MaxDay? {
+            guard let day = Day(day) else { return nil }
+            return VO2MaxDay(id: id ?? "vo2-\(day)", day: day, vo2Max: vo2Max)
+        }
+    }
+
+    struct SleepTime: Decodable {
+        struct Bedtime: Decodable {
+            var startOffset: Int?
+            var endOffset: Int?
+        }
+        var id: String?
+        var day: String
+        var status: String?
+        var recommendation: String?
+        var optimalBedtime: Bedtime?
+
+        func map() -> SleepTimeDay? {
+            guard let day = Day(day) else { return nil }
+            return SleepTimeDay(
+                id: id ?? "st-\(day)", day: day, status: status, recommendation: recommendation,
+                optimalBedtimeStartOffset: optimalBedtime?.startOffset,
+                optimalBedtimeEndOffset: optimalBedtime?.endOffset
+            )
+        }
+    }
+
+    struct SessionDTO: Decodable {
+        var id: String?
+        var day: String
+        var type: String?
+        var mood: String?
+        var startDatetime: String
+        var endDatetime: String
+
+        func map() -> MomentSession? {
+            guard let day = Day(day),
+                  let start = ISO8601.parse(startDatetime),
+                  let end = ISO8601.parse(endDatetime) else { return nil }
+            return MomentSession(id: id ?? "sess-\(startDatetime)", day: day,
+                                 type: type ?? "session", mood: mood, start: start, end: end)
+        }
+    }
+
+    struct TagDTO: Decodable {
+        var id: String?
+        var day: String
+        var tagTypeCode: String?
+        var comment: String?
+        var startTime: String?
+        /// `enhanced_tag` returns several codes; the older `tag` endpoint returns one.
+        var tags: [String]?
+
+        func map() -> DayTag? {
+            guard let day = Day(day) else { return nil }
+            let codes = tags ?? tagTypeCode.map { [$0] } ?? []
+            guard !codes.isEmpty || comment != nil else { return nil }
+            return DayTag(id: id ?? "tag-\(day)-\(codes.joined())", day: day, codes: codes,
+                          comment: comment, start: startTime.flatMap(ISO8601.parse))
+        }
+    }
+
+    struct RestModePeriodDTO: Decodable {
+        var id: String?
+        var startDay: String?
+        var endDay: String?
+        var episodes: [Episode]?
+        struct Episode: Decodable { var tags: [String]? }
+
+        func map() -> RestModePeriod? {
+            let start = startDay.flatMap(Day.init)
+            let end = endDay.flatMap(Day.init)
+            guard start != nil || end != nil else { return nil }
+            return RestModePeriod(id: id ?? "rest-\(startDay ?? "")", start: start, end: end,
+                                  episodeCount: episodes?.count ?? 0)
+        }
+    }
+
+    struct RingConfiguration: Decodable {
+        var id: String?
+        var colour: String?
+        var color: String?
+        var design: String?
+        var hardwareType: String?
+        var size: Int?
+        var setUpAt: String?
+
+        func map(battery: Int?) -> RingInfo {
+            RingInfo(id: id, design: design, colour: colour ?? color, hardwareType: hardwareType,
+                     size: size, batteryPercentage: battery,
+                     updatedAt: setUpAt.flatMap(ISO8601.parse))
+        }
+    }
+
+    struct RingBattery: Decodable {
+        var batteryLevel: Int?
+    }
+
     struct PersonalInfoDTO: Decodable {
         var id: String?
         var age: Int?

@@ -50,6 +50,30 @@ struct SettingsView: View {
                     }
                 }
 
+                if let ring = model.database.ringInfo {
+                    Section("Ring") {
+                        if let battery = ring.batteryPercentage {
+                            LabeledContent("Battery") {
+                                Text("\(battery)%")
+                                    .foregroundStyle(battery < 20 ? .red : .secondary)
+                                    .monospacedDigit()
+                            }
+                        }
+                        if let design = ring.design {
+                            LabeledContent("Design") { Text(design.capitalized).foregroundStyle(.secondary) }
+                        }
+                        if let colour = ring.colour {
+                            LabeledContent("Colour") { Text(colour.capitalized).foregroundStyle(.secondary) }
+                        }
+                        if let size = ring.size {
+                            LabeledContent("Size") { Text("\(size)").foregroundStyle(.secondary) }
+                        }
+                        if let hardware = ring.hardwareType {
+                            LabeledContent("Model") { Text(hardware.capitalized).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+
                 Section("Account") {
                     if let info = model.database.personalInfo {
                         if let email = info.email {
