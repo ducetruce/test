@@ -310,3 +310,28 @@ final class OuraAuthTests: XCTestCase {
         }
     }
 }
+
+/// Pins the date-window quirk that cost a day of missing rings: two endpoints in the same
+/// API disagree about whether `end_date` is inclusive.
+final class OuraWindowTests: XCTestCase {
+    private let from = Day(year: 2026, month: 9, day: 1)
+    private let to = Day(year: 2026, month: 9, day: 10)
+
+    func testEndExclusiveEndpointsAskForADayBeyondTheWindow() {
+        let window = OuraClient.window(for: .endExclusive, from: from, to: to)
+        XCTAssertEqual(window.end.description, "2026-09-11", "must ask past the day actually wanted")
+        // sleep is indexed by the day a night ends, so the first morning needs reach-back.
+        XCTAssertEqual(window.start.description, "2026-08-31")
+    }
+
+    func testEndInclusiveEndpointsAreLeftAlone() {
+        let window = OuraClient.window(for: .endInclusive, from: from, to: to)
+        XCTAssertEqual(window.start, from)
+        XCTAssertEqual(window.end, to)
+    }
+
+    func testWidenedWindowCoversTheRequestedDay() {
+        let window = OuraClient.window(for: .endExclusive, from: from, to: to)
+        XCTAssertTrue(Day.range(from: window.start, through: window.end).contains(to))
+    }
+}

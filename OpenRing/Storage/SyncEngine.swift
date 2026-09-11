@@ -10,12 +10,27 @@ struct SyncEngine {
     /// Recent days are re-fetched every sync because Oura revises the last night or two.
     static let refreshWindowDays = 14
 
-    private static func report(_ endpoint: String, _ from: Day, _ to: Day, _ days: [Day]) -> EndpointReport {
+    private static func report(
+        _ endpoint: String, _ from: Day, _ to: Day, _ days: [Day],
+        isDaily: Bool = true, failure: String? = nil
+    ) -> EndpointReport {
         EndpointReport(
             endpoint: endpoint, requestedFrom: from, requestedTo: to,
             received: days.count, newestDay: days.max(),
-            missingToday: !days.contains(to)
+            isDaily: isDaily, failure: failure,
+            missingToday: isDaily && !days.contains(to)
         )
+    }
+
+    /// Runs an optional endpoint, keeping *why* it failed instead of discarding it.
+    /// "Unavailable on this account" reads like a bug; an HTTP status says whether the
+    /// endpoint is missing, forbidden, or simply not part of this plan.
+    private func optional<T>(_ work: () async throws -> T) async -> (value: T?, failure: String?) {
+        do {
+            return (try await work(), nil)
+        } catch {
+            return (nil, (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+        }
     }
 
     struct Result {
@@ -72,23 +87,20 @@ struct SyncEngine {
 
         // Newer metrics. Not every account or ring generation returns these, and a plan
         // that lacks one should not fail the whole sync, so each is independently optional.
-        let cardiovascularAge = try? await client.cardiovascularAge(from: start, to: today)
-        let resilience = try? await client.resilience(from: start, to: today)
-        let vo2Max = try? await client.vo2Max(from: start, to: today)
-        let sleepTimes = try? await client.sleepTime(from: start, to: today)
-        let sessions = try? await client.sessions(from: start, to: today)
-        let tags = try? await client.tags(from: start, to: today)
-        let restModes = try? await client.restModePeriods(from: start, to: today)
-        let ringInfo = try? await client.ringInfo()
+        let (cardiovascularAge, cvaFailure) = await optional { try await client.cardiovascularAge(from: start, to: today) }
+        let (resilience, resilienceFailure) = await optional { try await client.resilience(from: start, to: today) }
+        let (vo2Max, vo2Failure) = await optional { try await client.vo2Max(from: start, to: today) }
+        let (sleepTimes, sleepTimeFailure) = await optional { try await client.sleepTime(from: start, to: today) }
+        let (sessions, sessionFailure) = await optional { try await client.sessions(from: start, to: today) }
+        let (tags, tagFailure) = await optional { try await client.tags(from: start, to: today) }
+        let (restModes, _) = await optional { try await client.restModePeriods(from: start, to: today) }
+        let (ringInfo, ringFailure) = await optional { try await client.ringInfo() }
 
-        for (name, missing) in [("Cardiovascular age", cardiovascularAge == nil),
-                                ("Resilience", resilience == nil),
-                                ("VO2 max", vo2Max == nil),
-                                ("Bedtime guidance", sleepTimes == nil),
-                                ("Guided sessions", sessions == nil),
-                                ("Tags", tags == nil),
-                                ("Ring details", ringInfo == nil)] where missing {
-            warnings.append("\(name) unavailable on this account")
+        for (name, failure) in [("Cardiovascular age", cvaFailure), ("Resilience", resilienceFailure),
+                                ("VO2 max", vo2Failure), ("Bedtime guidance", sleepTimeFailure),
+                                ("Guided sessions", sessionFailure), ("Tags", tagFailure),
+                                ("Ring details", ringFailure)] {
+            if let failure { warnings.append("\(name): \(failure)") }
         }
 
         if spo2 == nil { warnings.append("Blood oxygen data unavailable") }
@@ -120,7 +132,14 @@ struct SyncEngine {
             Self.report("daily_readiness", start, today, readiness.map(\.day)),
             Self.report("daily_spo2", start, today, (spo2 ?? []).map(\.day)),
             Self.report("daily_stress", start, today, (stress ?? []).map(\.day)),
-            Self.report("workout", start, today, (workouts ?? []).map(\.day))
+            // Event-based: a gap is a quiet week, not a fault.
+            Self.report("workout", start, today, (workouts ?? []).map(\.day), isDaily: false),
+            Self.report("session", start, today, (sessions ?? []).map(\.day), isDaily: false, failure: sessionFailure),
+            Self.report("tag", start, today, (tags ?? []).map(\.day), isDaily: false, failure: tagFailure),
+            Self.report("daily_cardiovascular_age", start, today, (cardiovascularAge ?? []).map(\.day), failure: cvaFailure),
+            Self.report("daily_resilience", start, today, (resilience ?? []).map(\.day), failure: resilienceFailure),
+            Self.report("vO2_max", start, today, (vo2Max ?? []).map(\.day), isDaily: false, failure: vo2Failure),
+            Self.report("sleep_time", start, today, (sleepTimes ?? []).map(\.day), failure: sleepTimeFailure)
         ]
         database.lastSync = Date()
         database.earliestSynced = min(database.earliestSynced ?? start, start)

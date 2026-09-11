@@ -9,10 +9,21 @@ struct EndpointReport: Codable, Hashable, Identifiable {
     var requestedTo: Day
     var received: Int
     var newestDay: Day?
-    /// Set when the endpoint returned nothing at all for the most recent requested day.
+    /// Only meaningful for endpoints that produce a record every day. A workout endpoint
+    /// with nothing since Tuesday is a quiet week, not a fault, and flagging it trains the
+    /// reader to ignore the flag that matters.
+    var isDaily: Bool = true
+    /// Why the endpoint returned nothing, when it failed outright rather than came back empty.
+    var failure: String?
+
+    /// Set when a *daily* endpoint returned nothing for the most recent requested day.
     var missingToday: Bool
 
     var id: String { endpoint }
+
+    /// An endpoint that returned nothing at all is the loudest signal available, and was
+    /// previously the quietest — with no newest date there was no indicator at all.
+    var returnedNothing: Bool { received == 0 }
 }
 
 /// Everything the app knows, in one Codable value. Small enough to keep in memory:

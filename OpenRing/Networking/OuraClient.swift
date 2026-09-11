@@ -66,9 +66,8 @@ struct OuraClient {
     }
 
     func sleepPeriods(from start: Day, to end: Day) async throws -> [SleepPeriod] {
-        // `sleep` is indexed by the day the night *ends*; reach back one day so the first
-        // requested morning is never clipped.
-        let page: [OuraDTO.Sleep] = try await collect(path: "sleep", from: start.adding(days: -1), to: end)
+        let window = Self.window(for: .endExclusive, from: start, to: end)
+        let page: [OuraDTO.Sleep] = try await collect(path: "sleep", from: window.start, to: window.end)
         return page.compactMap { $0.map() }
     }
 
@@ -82,7 +81,8 @@ struct OuraClient {
     }
 
     func activity(from start: Day, to end: Day) async throws -> [ActivityDay] {
-        let page: [OuraDTO.DailyActivity] = try await collect(path: "daily_activity", from: start, to: end)
+        let window = Self.window(for: .endExclusive, from: start, to: end)
+        let page: [OuraDTO.DailyActivity] = try await collect(path: "daily_activity", from: window.start, to: window.end)
         return page.compactMap { $0.map() }
     }
 
@@ -160,6 +160,31 @@ struct OuraClient {
     /// Cheap validation used by onboarding — any 2xx means the credentials work.
     func validateCredentials() async throws {
         _ = try await personalInfo()
+    }
+
+    // MARK: - Date window quirks
+
+    /// How an endpoint treats the day named by `end_date`.
+    ///
+    /// These are not consistent across the API. `sleep` and `daily_activity` do not return
+    /// the `end_date` day itself, so asking for a window ending today yields nothing for
+    /// today; `daily_readiness` does return it. Observed directly: a retry with the end date
+    /// pushed out a day returned the records the original window had omitted.
+    ///
+    /// `sleep` additionally needs a day of reach-back, because it is indexed by the day a
+    /// night *ends*, so the first requested morning would otherwise be clipped.
+    enum WindowStyle {
+        case endInclusive
+        case endExclusive
+    }
+
+    static func window(for style: WindowStyle, from start: Day, to end: Day) -> (start: Day, end: Day) {
+        switch style {
+        case .endInclusive:
+            return (start, end)
+        case .endExclusive:
+            return (start.adding(days: -1), end.adding(days: 1))
+        }
     }
 
     // MARK: - Transport

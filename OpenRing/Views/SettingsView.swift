@@ -43,26 +43,37 @@ struct SettingsView: View {
                 if !model.database.lastSyncReports.isEmpty {
                     Section {
                         ForEach(model.database.lastSyncReports) { report in
-                            LabeledContent {
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text("\(report.received) records")
-                                        .foregroundStyle(.secondary)
-                                        .monospacedDigit()
-                                    if let newest = report.newestDay {
-                                        Text("newest \(newest.description)")
-                                            .font(.caption2)
-                                            .foregroundStyle(report.missingToday ? .orange : .secondary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(report.endpoint)
+                                        .font(.system(.footnote, design: .monospaced))
+                                    Spacer()
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("\(report.received) records")
+                                            .monospacedDigit()
+                                            // Nothing at all is the loudest signal, and used
+                                            // to be the quietest: no records meant no date
+                                            // line, so no indicator either.
+                                            .foregroundStyle(report.returnedNothing ? Color.orange : Color.secondary)
+                                        if let newest = report.newestDay {
+                                            Text("newest \(newest.description)")
+                                                .font(.caption2)
+                                                .foregroundStyle(report.missingToday ? Color.orange : Color.secondary)
+                                        }
                                     }
                                 }
-                            } label: {
-                                Text(report.endpoint)
-                                    .font(.system(.footnote, design: .monospaced))
+                                if let failure = report.failure {
+                                    Text(failure)
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                     } header: {
                         Text("What the last sync returned")
                     } footer: {
-                        Text("Per endpoint, over the window that was requested. An orange newest date means that endpoint returned nothing for the most recent day asked for — which distinguishes Oura not having the data yet from the app failing to store it.")
+                        Text("Per endpoint, over the window that was requested. Orange means either nothing came back at all, or a daily endpoint returned nothing for the most recent day asked for. Workouts, sessions, tags and VO₂ max are not daily, so a gap in those is a quiet week rather than a fault and is never flagged.")
                     }
                 }
 

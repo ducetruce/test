@@ -243,3 +243,32 @@ final class EndpointReportTests: XCTestCase {
         XCTAssertEqual(restored.lastSyncReports.first?.endpoint, "sleep")
     }
 }
+
+final class EndpointReportFlaggingTests: XCTestCase {
+    private func make(_ days: [Day], to: Day, isDaily: Bool) -> EndpointReport {
+        EndpointReport(endpoint: "e", requestedFrom: to.adding(days: -30), requestedTo: to,
+                       received: days.count, newestDay: days.max(), isDaily: isDaily,
+                       failure: nil, missingToday: isDaily && !days.contains(to))
+    }
+
+    /// Workouts are sporadic; flagging every quiet week trains the reader to ignore the flag.
+    func testEventBasedEndpointsAreNeverFlaggedForAGap() {
+        let today = Day(year: 2026, month: 9, day: 10)
+        let stale = make([Day(year: 2026, month: 9, day: 2)], to: today, isDaily: false)
+        XCTAssertFalse(stale.missingToday)
+    }
+
+    func testDailyEndpointsStillFlagAMissingToday() {
+        let today = Day(year: 2026, month: 9, day: 10)
+        XCTAssertTrue(make([Day(year: 2026, month: 9, day: 9)], to: today, isDaily: true).missingToday)
+        XCTAssertFalse(make([today], to: today, isDaily: true).missingToday)
+    }
+
+    /// The most alarming case was previously the quietest: no records, so no date line.
+    func testAnEmptyEndpointIsFlaggedRegardlessOfKind() {
+        let today = Day(year: 2026, month: 9, day: 10)
+        XCTAssertTrue(make([], to: today, isDaily: false).returnedNothing)
+        XCTAssertTrue(make([], to: today, isDaily: true).returnedNothing)
+        XCTAssertFalse(make([today], to: today, isDaily: true).returnedNothing)
+    }
+}
