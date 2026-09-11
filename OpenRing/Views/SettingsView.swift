@@ -103,6 +103,23 @@ struct SettingsView: View {
                     Text("Reads the ring's history over Bluetooth with no cloud involved. Needs the ring's 16-byte auth key — either extracted from the official app, or one you install yourself on a factory-reset ring.")
                 }
 
+                Section {
+                    Button {
+                        Task { exportFile = await model.exportCalibration().map(ExportFile.init) }
+                    } label: {
+                        Label("Export score comparison (CSV)", systemImage: "chart.line.uptrend.xyaxis")
+                    }
+                    LabeledContent("Fully scored days") {
+                        Text("\(model.completeDayCount)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                } header: {
+                    Text("Calibration")
+                } footer: {
+                    Text("One row per day: this app's score, Oura's score for the same day, and the inputs that produced ours. No email, age, weight, height, heart-rate series or bedtimes — only the numbers a curve is fitted against. The first 28 days are skipped because the baselines have not filled yet.")
+                }
+
                 Section("Data") {
                     Button {
                         Task { exportFile = await model.exportData().map(ExportFile.init) }

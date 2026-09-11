@@ -167,6 +167,17 @@ final class AppModel: ObservableObject {
         scores = [:]
     }
 
+    /// Paired scores plus the inputs behind them, for retuning the curves.
+    func exportCalibration() async -> URL? {
+        let csv = CalibrationExport.csv(database: database, scores: scores)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openring-calibration-\(Day.today).csv")
+        try? Data(csv.utf8).write(to: url, options: .atomic)
+        return url
+    }
+
+    var completeDayCount: Int { CalibrationExport.completeDayCount(scores: scores) }
+
     func exportData() async -> URL? {
         guard let data = try? await store.exportJSON() else { return nil }
         let url = FileManager.default.temporaryDirectory

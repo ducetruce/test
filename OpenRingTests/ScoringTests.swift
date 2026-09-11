@@ -357,3 +357,57 @@ enum Fixtures {
         )
     }
 }
+
+final class CalibrationExportTests: XCTestCase {
+    private func database(days: Int) -> Database {
+        var database = Database()
+        let end = Day(year: 2026, month: 6, day: 30)
+        let range = Day.range(from: end.adding(days: -(days - 1)), through: end)
+        database.sleep = range.map { Fixtures.night(day: $0, hours: 7.5) }
+        database.activity = range.map { Fixtures.activity(day: $0, steps: 9000, activeCalories: 450) }
+        return database
+    }
+
+    func testHeaderMatchesTheColumnCountOfEveryRow() {
+        let db = database(days: 60)
+        let csv = CalibrationExport.csv(database: db, scores: ScoreEngine().allScores(in: db))
+        let lines = csv.split(separator: "\n").map(String.init)
+        XCTAssertGreaterThan(lines.count, 1)
+        let expected = CalibrationExport.columns.count
+        for line in lines {
+            XCTAssertEqual(line.components(separatedBy: ",").count, expected, "ragged row: \(line)")
+        }
+    }
+
+    /// Baselines need time to fill, so those days would teach the wrong lesson.
+    func testWarmUpDaysAreExcluded() {
+        let db = database(days: 60)
+        let csv = CalibrationExport.csv(database: db, scores: ScoreEngine().allScores(in: db), warmUpDays: 28)
+        let rows = csv.split(separator: "\n").dropFirst()
+        XCTAssertEqual(rows.count, 32, "60 days minus a 28 day warm-up")
+        XCTAssertFalse(csv.contains("2026-05-02"), "first day should be skipped")
+    }
+
+    /// A zero would be fitted as a real measurement; a gap has to stay a gap.
+    func testMissingValuesAreEmptyNotZero() {
+        var db = database(days: 40)
+        db.activity = []
+        let csv = CalibrationExport.csv(database: db, scores: ScoreEngine().allScores(in: db))
+        let row = try? XCTUnwrap(csv.split(separator: "\n").dropFirst().first.map(String.init))
+        let fields = (row ?? "").components(separatedBy: ",")
+        // Steps sits at a known offset and has no data here.
+        let stepsIndex = CalibrationExport.columns.firstIndex(of: "steps") ?? 0
+        XCTAssertEqual(fields[safe: stepsIndex], "")
+    }
+
+    func testEmptyDatabaseStillEmitsAHeader() {
+        let csv = CalibrationExport.csv(database: Database(), scores: [:])
+        XCTAssertEqual(csv.trimmingCharacters(in: .whitespacesAndNewlines), CalibrationExport.columns.joined(separator: ","))
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
