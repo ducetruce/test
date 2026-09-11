@@ -77,7 +77,7 @@ struct RingSyncView: View {
             HStack {
                 Text(keyStatus.text)
                     .font(.caption)
-                    .foregroundStyle(keyStatus.isValid ? .secondary : .red)
+                    .foregroundStyle(keyStatus.isValid ? Color.secondary : Color.red)
                 Spacer()
                 Button("Save") { model.saveRingKey(keyHex) }
                     .disabled(!keyStatus.isValid)
