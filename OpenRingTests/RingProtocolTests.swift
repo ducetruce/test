@@ -360,12 +360,21 @@ final class OuraScopeTests: XCTestCase {
         XCTAssertEqual(restored.grantedScopes, ["daily", "personal"])
     }
 
-    /// Credentials stored before scopes were recorded must not nag; an empty list is
-    /// "unknown", not "nothing granted".
-    func testUnknownGrantedScopesDoNotPromptReauthorisation() throws {
+    /// Credentials stored before scope tracking cover an unknown set, and certainly predate
+    /// the ring scope — so they must prompt, not stay quiet. Treating unknown as fine meant
+    /// the prompt never fired for anyone upgrading, which is everyone who needs it.
+    func testCredentialsFromBeforeScopeTrackingArePromptedToReauthorise() throws {
         let legacy = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "c",
                                      refreshToken: "d", expiresAt: Date(), grantedScopes: [])
-        XCTAssertTrue(legacy.grantedScopes.isEmpty)
+        XCTAssertTrue(legacy.grantedScopes.isEmpty, "an empty grant means unknown, not complete")
+        XCTAssertFalse(Set(OuraAuth.scopes).isSubset(of: Set(legacy.grantedScopes)))
+    }
+
+    func testAFullGrantDoesNotPrompt() {
+        let current = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "c",
+                                      refreshToken: "d", expiresAt: Date(),
+                                      grantedScopes: OuraAuth.scopes)
+        XCTAssertTrue(Set(OuraAuth.scopes).isSubset(of: Set(current.grantedScopes)))
     }
 
     func testForbiddenAndUnauthorisedSayDifferentThings() {

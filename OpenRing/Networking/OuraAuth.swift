@@ -74,9 +74,16 @@ actor OuraAuth: OuraTokenProviding {
 
     var current: OuraCredentials? { credentials }
 
-    /// True when the app now asks for scopes this authorisation never granted.
+    /// True when the app now asks for scopes this authorisation may never have granted.
+    ///
+    /// An empty list means the credentials predate scope tracking, so what they cover is
+    /// unknown — and they were certainly obtained before `ring` was added to the request.
+    /// Treating unknown as "fine" was wrong: the prompt would never fire for precisely the
+    /// people who need it, which is everyone upgrading. Prompting costs one sign-in;
+    /// staying quiet costs permanently broken endpoints with a misleading explanation.
     var needsReauthorisationForNewScopes: Bool {
-        guard let credentials, !credentials.grantedScopes.isEmpty else { return false }
+        guard let credentials else { return false }
+        guard !credentials.grantedScopes.isEmpty else { return true }
         return !Set(Self.scopes).isSubset(of: Set(credentials.grantedScopes))
     }
 

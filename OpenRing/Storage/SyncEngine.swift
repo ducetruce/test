@@ -141,7 +141,10 @@ struct SyncEngine {
             Self.report("daily_cardiovascular_age", start, today, (cardiovascularAge ?? []).map(\.day), failure: cvaFailure),
             Self.report("daily_resilience", start, today, (resilience ?? []).map(\.day), failure: resilienceFailure),
             Self.report("vO2_max", start, today, (vo2Max ?? []).map(\.day), isDaily: false, failure: vo2Failure),
-            Self.report("sleep_time", start, today, (sleepTimes ?? []).map(\.day), failure: sleepTimeFailure)
+            // Bedtime guidance is recomputed periodically rather than daily — 149 records
+            // across roughly 180 days, newest often a couple of days back — so a gap here
+            // is not a fault either.
+            Self.report("sleep_time", start, today, (sleepTimes ?? []).map(\.day), isDaily: false, failure: sleepTimeFailure)
         ]
         database.lastSync = Date()
         database.earliestSynced = min(database.earliestSynced ?? start, start)
