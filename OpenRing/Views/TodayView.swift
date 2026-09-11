@@ -68,6 +68,15 @@ struct TodayView: View {
     private func breakdownCard(_ score: Score) -> some View {
         SectionCard(score.kind.title, subtitle: subtitle(for: score)) {
             VStack(spacing: 14) {
+                if score.isPartial {
+                    Label(
+                        "Missing inputs are re-weighted, so this is not directly comparable to a full day's score.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 ForEach(visibleContributors(of: score)) { contributor in
                     ContributorRow(contributor: contributor)
                 }
@@ -89,6 +98,11 @@ struct TodayView: View {
 
     private func subtitle(for score: Score) -> String {
         var text = "\(score.value) · \(score.label)"
+        if score.isPartial {
+            // Say so rather than letting a number built from a third of its inputs read
+            // like one built from all of them.
+            text += " · partial, \(Int((score.coverage * 100).rounded()))% of inputs"
+        }
         if let cloud = score.cloudValue, cloud != score.value {
             text += " · Oura says \(cloud)"
         }

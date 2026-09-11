@@ -121,11 +121,13 @@ struct ScoreEngine {
             detail: "Midpoint \(Format.clockTime(night.midpoint))"
         ))
 
+        let outcome = weightedScore(contributors)
         return Score(
             kind: .sleep,
-            value: weightedScore(contributors),
+            value: outcome.value,
             contributors: contributors,
-            cloudValue: night.cloudScore
+            cloudValue: night.cloudScore,
+            coverage: outcome.coverage
         )
     }
 
@@ -254,11 +256,13 @@ struct ScoreEngine {
         }
 
         guard !contributors.isEmpty else { return nil }
+        let outcome = weightedScore(contributors)
         return Score(
             kind: .readiness,
-            value: weightedScore(contributors),
+            value: outcome.value,
             contributors: contributors,
-            cloudValue: readiness?.cloudScore
+            cloudValue: readiness?.cloudScore,
+            coverage: outcome.coverage
         )
     }
 
@@ -340,11 +344,13 @@ struct ScoreEngine {
             detail: recoveryScore == 100 ? "Well recovered" : "Recovery still catching up"
         ))
 
+        let outcome = weightedScore(contributors)
         return Score(
             kind: .activity,
-            value: weightedScore(contributors),
+            value: outcome.value,
             contributors: contributors,
-            cloudValue: activity.cloudScore
+            cloudValue: activity.cloudScore,
+            coverage: outcome.coverage
         )
     }
 
@@ -386,10 +392,13 @@ struct ScoreEngine {
 
     /// Weighted mean of whichever contributors are available, renormalised so a missing
     /// signal (no temperature that night, say) does not silently drag the score down.
-    private func weightedScore(_ contributors: [Contributor]) -> Int {
+    ///
+    /// Also reports how much of the weight was present: every weight table here sums to 1,
+    /// so the surviving total *is* the coverage.
+    private func weightedScore(_ contributors: [Contributor]) -> (value: Int, coverage: Double) {
         let totalWeight = contributors.reduce(0) { $0 + $1.weight }
-        guard totalWeight > 0 else { return 0 }
+        guard totalWeight > 0 else { return (0, 0) }
         let sum = contributors.reduce(0) { $0 + Curve.clamp($1.score) * $1.weight }
-        return Int(Curve.clamp(sum / totalWeight, 1...100).rounded())
+        return (Int(Curve.clamp(sum / totalWeight, 1...100).rounded()), min(totalWeight, 1))
     }
 }

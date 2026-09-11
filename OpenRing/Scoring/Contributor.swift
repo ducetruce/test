@@ -31,6 +31,19 @@ struct Score: Codable, Hashable {
     /// Oura's own number for the same day, when the account still returns one.
     var cloudValue: Int?
 
+    /// Share of the total contributor weight that was actually available, 0...1.
+    ///
+    /// Missing signals are re-weighted rather than zeroed, which is correct, but it means a
+    /// score can be assembled from a minority of its inputs and still read as confident.
+    /// A night with no sleep record loses HRV, resting heart rate, previous night and
+    /// recovery index — 56% of readiness — and what remains is not the same measurement.
+    var coverage: Double = 1
+
+    /// Below this, the score is shown qualified rather than plain.
+    var isPartial: Bool { coverage < 0.7 }
+
+    var availableContributorCount: Int { contributors.count }
+
     var label: String {
         switch value {
         case 85...: return "Optimal"

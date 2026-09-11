@@ -166,8 +166,7 @@ paying for the Apple Developer Program.
 
 Oura stopped issuing personal access tokens in December 2025, so access goes through OAuth2.
 
-1. Open [cloud.ouraring.com/oauth/applications](https://cloud.ouraring.com/oauth/applications)
-   and create an application.
+1. Open [developer.ouraring.com](https://developer.ouraring.com) and create an application.
 2. Set its redirect URI to exactly `openring://oauth-callback`.
 3. Paste the client id and secret into OpenRing and tap **Sign in with Oura**. Oura's own page
    opens in the system browser — the app never sees your password.
@@ -210,7 +209,10 @@ Two design rules matter:
   against your own trailing 14- and 28-day baselines, not population norms. Expect the first
   two weeks of data to produce softer readiness numbers while baselines fill in.
 - **Missing signals are skipped, not zeroed.** The remaining contributors are re-weighted, so
-  a night without a temperature reading does not quietly cost you points.
+  a night without a temperature reading does not quietly cost you points. When enough of them
+  are missing the score is labelled *partial* with the share of inputs it actually had — a day
+  with no sleep record is missing 56% of readiness, and a number built from the rest should
+  not read as confidently as a whole one.
 
 Absolute numbers will differ from Oura's by a few points. Day-to-day *direction* is what the
 scores are for, and that tracks closely because it comes from the same measurements.

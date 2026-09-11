@@ -51,7 +51,7 @@ struct OnboardingView: View {
     }
 
     private var registerCard: some View {
-        SectionCard("1. Register an application", subtitle: "cloud.ouraring.com") {
+        SectionCard("1. Register an application", subtitle: "developer.ouraring.com") {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Oura stopped issuing personal access tokens in December 2025, so access now goes through OAuth. Create an application in the Oura developer portal — it takes a minute and is free.")
                     .font(.footnote)
@@ -68,7 +68,7 @@ struct OnboardingView: View {
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                Link("Open the Oura developer portal", destination: URL(string: "https://cloud.ouraring.com/oauth/applications")!)
+                Link("Open the Oura developer portal", destination: URL(string: "https://developer.ouraring.com")!)
                     .font(.footnote)
             }
         }

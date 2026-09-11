@@ -95,6 +95,51 @@ final class ScoreEngineTests: XCTestCase {
         XCTAssertGreaterThan(readiness.value, 60)
     }
 
+    /// A readiness score assembled without a sleep record is missing HRV, resting heart
+    /// rate, previous night and recovery index — most of the weight — and must say so.
+    func testReadinessWithoutASleepRecordIsMarkedPartial() throws {
+        let day = Day(year: 2026, month: 9, day: 10)
+        var database = Database()
+        database.merge(readiness: [ReadinessDay(
+            id: "r", day: day, cloudScore: 71,
+            temperatureDeviation: -0.13, temperatureTrendDeviation: nil
+        )])
+
+        let readiness = try XCTUnwrap(engine.readinessScore(for: day, in: database, sleepScore: nil))
+        XCTAssertTrue(readiness.isPartial, "coverage was \(readiness.coverage)")
+        XCTAssertLessThan(readiness.coverage, 0.5)
+        XCTAssertEqual(readiness.cloudValue, 71)
+    }
+
+    func testAFullNightIsNotMarkedPartial() throws {
+        let day = Day(year: 2026, month: 9, day: 10)
+        var database = Database()
+        database.sleep = Day.range(from: day.adding(days: -14), through: day).map {
+            Fixtures.night(day: $0, hours: 7.5)
+        }
+        database.activity = Day.range(from: day.adding(days: -28), through: day).map {
+            Fixtures.activity(day: $0, steps: 9000, activeCalories: 450)
+        }
+        database.merge(readiness: [ReadinessDay(
+            id: "r", day: day, cloudScore: 80,
+            temperatureDeviation: 0.05, temperatureTrendDeviation: nil
+        )])
+
+        let sleep = engine.sleepScore(for: day, in: database)
+        let readiness = try XCTUnwrap(engine.readinessScore(for: day, in: database, sleepScore: sleep))
+        XCTAssertFalse(readiness.isPartial, "coverage was \(readiness.coverage)")
+        XCTAssertGreaterThan(readiness.coverage, 0.9)
+    }
+
+    func testCoverageNeverExceedsOne() throws {
+        let day = Day(year: 2026, month: 9, day: 10)
+        var database = Database()
+        database.sleep = [Fixtures.night(day: day, hours: 8)]
+        let sleep = try XCTUnwrap(engine.sleepScore(for: day, in: database))
+        XCTAssertEqual(sleep.coverage, 1, accuracy: 0.0001)
+        XCTAssertFalse(sleep.isPartial)
+    }
+
     func testScoresStayInRange() {
         let day = Day(year: 2026, month: 7, day: 4)
         var database = Database()
