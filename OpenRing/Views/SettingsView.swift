@@ -16,6 +16,18 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                if model.needsReauthorisation {
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("New permissions needed", systemImage: "exclamationmark.triangle")
+                                .font(.subheadline.weight(.medium))
+                            Text("OpenRing now asks for data your last sign-in did not cover, which is why those endpoints return a permission error. Sign out and sign in again to grant them — nothing stored on this device is lost.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 Section("Sync") {
                     LabeledContent("Last sync") {
                         Text(model.lastSync.map { Format.relative($0) } ?? "Never")

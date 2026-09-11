@@ -103,7 +103,9 @@ struct SyncEngine {
             if let failure { warnings.append("\(name): \(failure)") }
         }
 
-        if spo2 == nil { warnings.append("Blood oxygen data unavailable") }
+        // An endpoint that answers with an empty list has not failed; the record count in
+        // the report already says so, and a warning here would imply a fault that is not one.
+        if spo2 == nil { warnings.append("Blood oxygen: request failed") }
         if stress == nil { warnings.append("Daytime stress data unavailable") }
         if workouts == nil { warnings.append("Workout data unavailable") }
         if dailySleepScores.isEmpty { warnings.append("Oura returned no cloud sleep scores — using locally computed scores only") }

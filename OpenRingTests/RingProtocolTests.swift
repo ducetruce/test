@@ -335,3 +335,44 @@ final class OuraWindowTests: XCTestCase {
         XCTAssertTrue(Day.range(from: window.start, through: window.end).contains(to))
     }
 }
+
+final class OuraScopeTests: XCTestCase {
+    /// Oura's consent screen offers a ring scope; omitting it returned 403 on
+    /// ring_configuration while every other endpoint worked.
+    func testRingScopeIsRequested() {
+        XCTAssertTrue(OuraAuth.scopes.contains("ring"))
+    }
+
+    func testScopesAreSpaceSeparatedInTheAuthorizationURL() throws {
+        let url = try XCTUnwrap(OuraAuth.authorizationURL(clientID: "x", state: "y"))
+        let scope = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "scope" }?.value)
+        XCTAssertEqual(scope.split(separator: " ").count, OuraAuth.scopes.count)
+        XCTAssertFalse(scope.contains(","))
+    }
+
+    func testCredentialsCarryTheScopesTheyWereGrantedWith() throws {
+        let credentials = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "c",
+                                          refreshToken: "d", expiresAt: Date(),
+                                          grantedScopes: ["daily", "personal"])
+        let data = try JSONEncoder().encode(credentials)
+        let restored = try JSONDecoder().decode(OuraCredentials.self, from: data)
+        XCTAssertEqual(restored.grantedScopes, ["daily", "personal"])
+    }
+
+    /// Credentials stored before scopes were recorded must not nag; an empty list is
+    /// "unknown", not "nothing granted".
+    func testUnknownGrantedScopesDoNotPromptReauthorisation() throws {
+        let legacy = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "c",
+                                     refreshToken: "d", expiresAt: Date(), grantedScopes: [])
+        XCTAssertTrue(legacy.grantedScopes.isEmpty)
+    }
+
+    func testForbiddenAndUnauthorisedSayDifferentThings() {
+        let forbidden = OuraError.forbidden.errorDescription ?? ""
+        let unauthorised = OuraError.unauthorized.errorDescription ?? ""
+        XCTAssertNotEqual(forbidden, unauthorised)
+        // A scope problem must not tell the user their login is broken.
+        XCTAssertTrue(forbidden.lowercased().contains("permission") || forbidden.lowercased().contains("plan"))
+    }
+}

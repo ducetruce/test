@@ -4,6 +4,7 @@ enum OuraError: LocalizedError {
     case missingToken
     case notAuthorised
     case unauthorized
+    case forbidden
     case rateLimited
     case server(status: Int, body: String)
     case transport(Error)
@@ -22,6 +23,8 @@ enum OuraError: LocalizedError {
             return "Not connected to Oura yet. Sign in from Settings."
         case .unauthorized:
             return "Oura rejected the credentials. Sign in again from Settings."
+        case .forbidden:
+            return "Your Oura sign-in does not cover this data. Either the permission was not granted when you authorised, or it is not part of your Oura plan."
         case .tokenNotRefreshable:
             return "This is a legacy personal access token, which cannot be refreshed. Oura has stopped issuing these — connect with OAuth instead."
         case .stateMismatch:
@@ -221,9 +224,10 @@ struct OuraClient {
         var accessToken = try await tokens.token()
         var (data, status) = try await send(url: url, accessToken: accessToken)
 
-        // One retry with a refreshed token: an access token can expire mid-sync, and a
-        // provider that cannot refresh throws, which leaves the original 401 intact.
-        if status == 401 || status == 403 {
+        // Only 401. A 403 means the token is valid but this endpoint is not covered by the
+        // granted scopes, which no refresh can fix — and since Oura's refresh tokens are
+        // single use, retrying a 403 spends one every time, on every failing endpoint.
+        if status == 401 {
             guard let refreshed = try? await tokens.refreshedToken() else {
                 throw OuraError.unauthorized
             }
@@ -234,8 +238,10 @@ struct OuraClient {
         switch status {
         case 200..<300:
             break
-        case 401, 403:
+        case 401:
             throw OuraError.unauthorized
+        case 403:
+            throw OuraError.forbidden
         case 429:
             throw OuraError.rateLimited
         default:

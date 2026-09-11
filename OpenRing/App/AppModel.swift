@@ -45,9 +45,13 @@ final class AppModel: ObservableObject {
 
     // MARK: - Lifecycle
 
+    /// Set when the app asks for a permission the stored authorisation never granted.
+    @Published private(set) var needsReauthorisation = false
+
     /// OAuth credentials live behind an actor, so connection state has to be awaited.
     func refreshConnection() async {
         isConnected = await AuthResolver.hasCredentials()
+        needsReauthorisation = await AuthResolver.auth.needsReauthorisationForNewScopes
     }
 
     func loadFromDisk() async {

@@ -12,6 +12,10 @@ struct OuraCredentials: Codable, Equatable {
     var accessToken: String
     var refreshToken: String
     var expiresAt: Date
+    /// What was actually granted when this authorisation was made. Compared against the
+    /// current request list so a scope added later can prompt for re-authorisation instead
+    /// of silently returning 403 forever.
+    var grantedScopes: [String] = []
 
     /// Treated as expired a minute early so a sync never starts with a token about to die.
     var isExpired: Bool { Date() >= expiresAt.addingTimeInterval(-60) }
@@ -54,7 +58,7 @@ actor OuraAuth: OuraTokenProviding {
     /// the redirect URI on the Oura application exactly.
     static let redirectURI = "openring://oauth-callback"
 
-    static let scopes = ["email", "personal", "daily", "heartrate", "workout", "tag", "session", "spo2Daily"]
+    static let scopes = ["email", "personal", "daily", "heartrate", "workout", "tag", "session", "spo2Daily", "ring"]
 
     private static let keychainAccount = "oura-oauth-credentials"
 
@@ -69,6 +73,12 @@ actor OuraAuth: OuraTokenProviding {
     var isAuthorised: Bool { credentials != nil }
 
     var current: OuraCredentials? { credentials }
+
+    /// True when the app now asks for scopes this authorisation never granted.
+    var needsReauthorisationForNewScopes: Bool {
+        guard let credentials, !credentials.grantedScopes.isEmpty else { return false }
+        return !Set(Self.scopes).isSubset(of: Set(credentials.grantedScopes))
+    }
 
     // MARK: - Authorisation URL
 
@@ -279,7 +289,8 @@ actor OuraAuth: OuraTokenProviding {
             clientSecret: clientSecret,
             accessToken: token.accessToken,
             refreshToken: refreshToken,
-            expiresAt: Date().addingTimeInterval(token.expiresIn ?? 3600)
+            expiresAt: Date().addingTimeInterval(token.expiresIn ?? 3600),
+            grantedScopes: Self.scopes
         )
     }
 
