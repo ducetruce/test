@@ -12,7 +12,9 @@ Not affiliated with, endorsed by, or supported by Ōura Health Oy.
 
 ## Read this first: how the data gets here
 
-- **This app reads from Oura's cloud API, using a personal access token you generate.** The
+- **This app reads from Oura's cloud API over OAuth2.** Oura deprecated personal access
+  tokens in December 2025 and no longer issues them, so you register a small application of
+  your own and sign in through Oura's page. The
   ring syncs to Oura's servers via the official Oura app; OpenRing downloads from the API and
   keeps a permanent local copy. That is the path that works from an unmodified iPhone today.
 - **Talking to the ring directly over BLE is possible, but not from an iPhone alone.** The
@@ -37,8 +39,9 @@ Not affiliated with, endorsed by, or supported by Ōura Health Oy.
 
 ## Three ways to get your data in
 
-**1. Oura cloud API (default).** Paste a personal access token; the app downloads 180 days on
-first sync and keeps a permanent local copy. Works from an unmodified iPhone.
+**1. Oura cloud API over OAuth2 (default).** Register an application, paste its client id and
+secret, sign in through Oura's own page; the app downloads 180 days on first sync and keeps a
+permanent local copy. Works from an unmodified iPhone.
 
 **2. Data export import.** Request your export at
 [membership.ouraring.com/data-export](https://membership.ouraring.com/data-export) and import
@@ -161,14 +164,30 @@ paying for the Apple Developer Program.
 
 ## Connecting your data
 
-1. Sign in at [cloud.ouraring.com/personal-access-tokens](https://cloud.ouraring.com/personal-access-tokens)
-2. Create a personal access token and copy it.
-3. Paste it into OpenRing on first launch.
+Oura stopped issuing personal access tokens in December 2025, so access goes through OAuth2.
 
-The token is stored in the iOS Keychain. It is sent to exactly one place: `api.ouraring.com`.
-There is no OpenRing server, no account, and no analytics. The first sync downloads 180 days;
-later syncs refresh the last 14 days (Oura revises recent nights) and run at most every 30
-minutes in the foreground, plus a background refresh.
+1. Open [cloud.ouraring.com/oauth/applications](https://cloud.ouraring.com/oauth/applications)
+   and create an application.
+2. Set its redirect URI to exactly `openring://oauth-callback`.
+3. Paste the client id and secret into OpenRing and tap **Sign in with Oura**. Oura's own page
+   opens in the system browser — the app never sees your password.
+
+Credentials live in the iOS Keychain and are sent to exactly one place: `api.ouraring.com`.
+There is no OpenRing server, no account, and no analytics. The client id and secret are yours
+and are entered at runtime, never committed.
+
+Three details worth knowing about the implementation:
+
+- **Refresh tokens are single-use.** Each refresh returns a new one and invalidates the old,
+  so `OuraAuth` is an actor: two concurrent refreshes would spend the same token twice and
+  lock the account out until you re-authorised.
+- **The `state` parameter is verified**, not merely sent, so a forged redirect cannot hand the
+  app someone else's authorisation code.
+- **A 401 mid-sync is retried once** with a refreshed token rather than failing the sync.
+
+If you hold a personal access token created before the cut-off, onboarding has a disclosure
+for it. It still works, but it cannot be refreshed and Oura has said they will be switched
+off — treat it as a bridge, not a destination.
 
 ## How the scores work
 
