@@ -12,6 +12,7 @@ enum OuraError: LocalizedError {
     case stateMismatch
     case authorisationFailed(String)
     case authorisationExpired(String)
+    case invalidClient(String)
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +28,8 @@ enum OuraError: LocalizedError {
             return "The sign-in response did not match the request and was discarded."
         case .authorisationFailed(let detail):
             return "Oura declined the authorisation: \(detail.prefix(200))"
+        case .invalidClient(let detail):
+            return "Oura rejected the client id and secret, both as form fields and as HTTP Basic auth. Check the secret was copied in full — it is shown only once when the application is created, and can be regenerated in the developer portal. \(detail.prefix(160))"
         case .authorisationExpired(let detail):
             return "Your Oura authorisation is no longer valid and must be granted again. \(detail.prefix(160))"
         case .rateLimited:

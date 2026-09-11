@@ -32,6 +32,12 @@ struct OnboardingView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Welcome")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                // Restore after a failed attempt rather than making the user retype a
+                // 40-character secret.
+                if clientID.isEmpty { clientID = model.savedClientID }
+                if clientSecret.isEmpty { clientSecret = model.savedClientSecret }
+            }
         }
     }
 

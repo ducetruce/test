@@ -194,17 +194,50 @@ actor OuraAuth: OuraTokenProviding {
         var tokenType: String?
     }
 
+    /// OAuth2 lets a server take client credentials either as form fields or as HTTP Basic
+    /// auth, and providers differ on which they accept. Rather than bet on one, try the form
+    /// first and fall back to Basic when the server answers `invalid_client`.
     private func requestToken(
         form: [String: String],
         clientID: String,
         clientSecret: String,
         previousRefreshToken: String?
     ) async throws -> OuraCredentials {
+        do {
+            return try await attemptToken(
+                form: form, clientID: clientID, clientSecret: clientSecret,
+                previousRefreshToken: previousRefreshToken, useBasicAuth: false
+            )
+        } catch OuraError.invalidClient {
+            return try await attemptToken(
+                form: form, clientID: clientID, clientSecret: clientSecret,
+                previousRefreshToken: previousRefreshToken, useBasicAuth: true
+            )
+        }
+    }
+
+    private func attemptToken(
+        form: [String: String],
+        clientID: String,
+        clientSecret: String,
+        previousRefreshToken: String?,
+        useBasicAuth: Bool
+    ) async throws -> OuraCredentials {
         var request = URLRequest(url: Self.tokenURL)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = Self.formEncode(form).data(using: .utf8)
+
+        var fields = form
+        if useBasicAuth {
+            // With Basic the credentials move out of the body entirely, which is what a
+            // server that insists on Basic expects to see.
+            fields.removeValue(forKey: "client_id")
+            fields.removeValue(forKey: "client_secret")
+            let pair = Data("\(clientID):\(clientSecret)".utf8).base64EncodedString()
+            request.setValue("Basic \(pair)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = Self.formEncode(fields).data(using: .utf8)
 
         let data: Data
         let response: URLResponse
@@ -219,8 +252,13 @@ actor OuraAuth: OuraTokenProviding {
         }
         guard (200..<300).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? ""
-            // A refresh that fails with 4xx means the grant is gone for good; the user has
-            // to authorise again, and saying so is more useful than a bare status code.
+            // Distinguished so the caller can retry with the other client-auth style; only
+            // this exact error means "I do not accept these credentials this way".
+            if body.contains("invalid_client") {
+                throw OuraError.invalidClient(body)
+            }
+            // Any other 4xx on a refresh means the grant itself is gone and the user has to
+            // authorise again, which is more useful to say than a bare status code.
             if (400..<500).contains(http.statusCode) {
                 throw OuraError.authorisationExpired(body)
             }

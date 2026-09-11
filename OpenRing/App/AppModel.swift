@@ -8,6 +8,8 @@ import SwiftUI
 final class AppModel: ObservableObject {
     nonisolated static let tokenAccount = "oura-personal-access-token"
     nonisolated static let ringKeyAccount = "oura-ring-auth-key"
+    nonisolated static let clientIDAccount = "oura-client-id"
+    nonisolated static let clientSecretAccount = "oura-client-secret"
 
     @Published private(set) var database = Database()
     @Published private(set) var scores: [Day: DayScores] = [:]
@@ -84,8 +86,15 @@ final class AppModel: ObservableObject {
 
     // MARK: - Credentials
 
+    /// The application keys, kept so a failed attempt does not cost the user retyping a
+    /// long secret. These are the user's own credentials, not a shared app secret.
+    var savedClientID: String { Keychain.get(account: Self.clientIDAccount) ?? "" }
+    var savedClientSecret: String { Keychain.get(account: Self.clientSecretAccount) ?? "" }
+
     /// Runs the OAuth2 flow end to end. Returns an error message, or nil on success.
     func connect(clientID: String, clientSecret: String) async -> String? {
+        Keychain.set(clientID.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.clientIDAccount)
+        Keychain.set(clientSecret.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.clientSecretAccount)
         do {
             _ = try await signIn.run(clientID: clientID, clientSecret: clientSecret, auth: AuthResolver.auth)
             isConnected = true
@@ -114,6 +123,8 @@ final class AppModel: ObservableObject {
 
     func signOut() async {
         Keychain.delete(account: Self.tokenAccount)
+        Keychain.delete(account: Self.clientIDAccount)
+        Keychain.delete(account: Self.clientSecretAccount)
         await AuthResolver.auth.signOut()
         isConnected = false
         hasCompletedOnboarding = false
