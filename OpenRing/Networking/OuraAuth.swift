@@ -89,6 +89,12 @@ actor OuraAuth: OuraTokenProviding {
 
     var isAuthorised: Bool { credentials != nil }
 
+    /// What Oura actually granted, as reported by the authorisation callback. Empty means
+    /// the grant predates scope tracking or the callback did not state it — not that nothing
+    /// was granted. Surfaced in Settings because guessing at scope names has cost this
+    /// project more debugging than every other class of bug combined.
+    var grantedScopes: [String] { credentials?.grantedScopes ?? [] }
+
     var current: OuraCredentials? { credentials }
 
     /// True when the app now asks for scopes this authorisation may never have granted.
@@ -218,7 +224,11 @@ actor OuraAuth: OuraTokenProviding {
                 ],
                 clientID: existing.clientID,
                 clientSecret: existing.clientSecret,
-                previousRefreshToken: nil,
+                // Oura may omit refresh_token on a refresh response. Keep the old one only
+                // in that case — a returned one always supersedes it. Passing nil here
+                // instead turns a spec-legal response into "no refresh token in the
+                // response", i.e. a sign-out for a refresh that actually succeeded.
+                previousRefreshToken: existing.refreshToken,
                 grantedScopes: existing.grantedScopes
             )
         }

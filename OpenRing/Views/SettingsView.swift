@@ -109,6 +109,27 @@ struct SettingsView: View {
                     }
                 }
 
+                if !model.grantedScopes.isEmpty {
+                    Section {
+                        ForEach(model.grantedScopes, id: \.self) { scope in
+                            LabeledContent(scope) {
+                                Image(systemName: "checkmark").foregroundStyle(.green)
+                            }
+                            .font(.footnote.monospaced())
+                        }
+                        ForEach(model.missingScopes, id: \.self) { scope in
+                            LabeledContent(scope) {
+                                Text("not granted").foregroundStyle(.orange)
+                            }
+                            .font(.footnote.monospaced())
+                        }
+                    } header: {
+                        Text("Permissions Oura granted")
+                    } footer: {
+                        Text("Reported by Oura at sign-in, not what the app asked for. An endpoint failing while its scope is listed here is a plan or account limit, not a permissions problem.")
+                    }
+                }
+
                 if let ring = model.database.ringInfo {
                     Section("Ring") {
                         if let battery = ring.batteryPercentage {

@@ -49,10 +49,16 @@ final class AppModel: ObservableObject {
     /// Set when the app asks for a permission the stored authorisation never granted.
     @Published private(set) var needsReauthorisation = false
 
+    /// The scopes Oura reported granting, and the ones the app asks for that are missing.
+    @Published private(set) var grantedScopes: [String] = []
+    @Published private(set) var missingScopes: [String] = []
+
     /// OAuth credentials live behind an actor, so connection state has to be awaited.
     func refreshConnection() async {
         isConnected = await AuthResolver.hasCredentials()
         needsReauthorisation = await AuthResolver.auth.needsReauthorisationForNewScopes
+        grantedScopes = await AuthResolver.auth.grantedScopes
+        missingScopes = grantedScopes.isEmpty ? [] : OuraAuth.scopes.filter { !grantedScopes.contains($0) }
     }
 
     func loadFromDisk() async {
