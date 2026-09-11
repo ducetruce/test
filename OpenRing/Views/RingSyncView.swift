@@ -81,7 +81,10 @@ struct RingSyncView: View {
                     .foregroundStyle(keyStatus.isValid ? Color.secondary : Color.red)
                 Spacer()
                 Button("Save") {
+                    let changed = keyHex.filter(\.isHexDigit).lowercased()
+                        != model.ringKey.filter(\.isHexDigit).lowercased()
                     if model.saveRingKey(keyHex) {
+                        if changed { sync.resetCursor() }
                         keySaveMessage = "Saved securely."
                     } else {
                         keySaveMessage = OuraError.secureStorageFailed("the ring key").localizedDescription

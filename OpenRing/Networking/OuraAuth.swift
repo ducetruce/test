@@ -94,10 +94,8 @@ actor OuraAuth: OuraTokenProviding {
     /// True when the app now asks for scopes this authorisation may never have granted.
     ///
     /// An empty list means the credentials predate scope tracking, so what they cover is
-    /// unknown — and they were certainly obtained before `ring` was added to the request.
-    /// Treating unknown as "fine" was wrong: the prompt would never fire for precisely the
-    /// people who need it, which is everyone upgrading. Prompting costs one sign-in;
-    /// staying quiet costs permanently broken endpoints with a misleading explanation.
+    /// unknown. Prompt once rather than silently treating an unknown historical grant as
+    /// complete and returning unexplained permission failures later.
     var needsReauthorisationForNewScopes: Bool {
         guard let credentials else { return false }
         guard !credentials.grantedScopes.isEmpty else { return true }
@@ -269,7 +267,31 @@ actor OuraAuth: OuraTokenProviding {
     private static func loadFromKeychain() -> OuraCredentials? {
         guard let json = Keychain.get(account: keychainAccount),
               let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(OuraCredentials.self, from: data)
+        return decodeStoredCredentials(data)
+    }
+
+    /// Credentials written before `grantedScopes` existed need an explicit migration:
+    /// Codable does not apply a stored property's default when a JSON key is absent.
+    nonisolated static func decodeStoredCredentials(_ data: Data) -> OuraCredentials? {
+        let decoder = JSONDecoder()
+        if let current = try? decoder.decode(OuraCredentials.self, from: data) { return current }
+
+        struct LegacyCredentials: Decodable {
+            var clientID: String
+            var clientSecret: String
+            var accessToken: String
+            var refreshToken: String
+            var expiresAt: Date
+        }
+        guard let legacy = try? decoder.decode(LegacyCredentials.self, from: data) else { return nil }
+        return OuraCredentials(
+            clientID: legacy.clientID,
+            clientSecret: legacy.clientSecret,
+            accessToken: legacy.accessToken,
+            refreshToken: legacy.refreshToken,
+            expiresAt: legacy.expiresAt,
+            grantedScopes: []
+        )
     }
 
     // MARK: - Transport

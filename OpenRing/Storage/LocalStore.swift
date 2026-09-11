@@ -43,11 +43,12 @@ actor LocalStore {
     }
 
     func save(_ database: Database) throws {
-        cached = database
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(database)
         try data.write(to: fileURL, options: .atomic)
+        // Only advertise the new state through the cache after the atomic write succeeds.
+        cached = database
     }
 
     func exportJSON() throws -> Data {

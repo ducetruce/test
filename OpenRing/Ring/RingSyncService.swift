@@ -83,17 +83,23 @@ final class RingSyncService: ObservableObject {
     func sync(using connection: RingConnection, keyHex: String) async {
         phase = .preparing
         report = Report()
+        var drainedEvents: [RingEvent] = []
 
         do {
             if !connection.isAuthenticated {
                 try await connection.authenticate(keyHex: keyHex)
             }
 
-            // Put the link into event-stream mode and let the ring release buffered events.
-            connection.write(RingProtocol.enableEventStream())
-            connection.write(RingProtocol.enableAllNotifications())
-            connection.write(RingProtocol.syncTime())
-            connection.write(RingProtocol.dataFlush())
+            // Mirror the current app-style history setup. Pace no-response writes so a
+            // phone/ring with a small BLE transmit queue is not flooded during setup.
+            let setup = [RingProtocol.enableEventStream()]
+                + RingProtocol.eventCategorySubscriptions()
+                + RingProtocol.appParameterSweep()
+                + [RingProtocol.enableAllNotifications(), RingProtocol.syncTime(), RingProtocol.dataFlush()]
+            for frame in setup {
+                connection.write(frame)
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
             connection.note("Stream prepared; draining from cursor \(cursor)")
 
             var sequence = 0
@@ -117,13 +123,16 @@ final class RingSyncService: ObservableObject {
                 report.eventsReceived += batch.events.count
                 report.bytesLeft = batch.summary.bytesLeft
 
-                await ingest(batch.events)
+                // The capture is the source of truth for this experimental path. It must be
+                // durable before the bookmark moves or a crash can skip a whole batch.
+                try await ingest(batch.events)
+                drainedEvents.append(contentsOf: batch.events)
                 phase = .draining(events: report.eventsReceived, bytesLeft: batch.summary.bytesLeft)
 
                 // Advance past the newest event we actually decoded, then tell the ring.
                 if let newest = batch.events.map(\.rawTimestamp).max() {
                     cursor = newest &+ 1
-                    _ = try? await connection.send(
+                    _ = try await connection.send(
                         RingProtocol.acknowledge(cursor: cursor),
                         expecting: { RingProtocol.eventSummary(in: $0) != nil },
                         timeout: 10,
@@ -142,26 +151,31 @@ final class RingSyncService: ObservableObject {
                 }
             }
 
-            try? await store.save()
+            summariseTimes(in: drainedEvents)
             phase = .finished
         } catch {
+            summariseTimes(in: drainedEvents)
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             connection.note("Sync failed: \(message)")
             phase = .failed(message)
         }
     }
 
-    private func ingest(_ events: [RingEvent]) async {
+    private func ingest(_ events: [RingEvent]) async throws {
+        try await store.appendAndSave(events)
         for event in events {
             let kind = RingEventDecoder.kind(for: event.tag)
             report.countsByKind[kind.label, default: 0] += 1
-            if let date = event.date {
-                report.firstEvent = min(report.firstEvent ?? date, date)
-                report.lastEvent = max(report.lastEvent ?? date, date)
-            }
-            report.samples += RingEventDecoder.samples(from: event).count
         }
-        await store.append(events)
+    }
+
+    private func summariseTimes(in events: [RingEvent]) {
+        for (event, date) in zip(events, RingEventClock.dates(for: events)) {
+            guard let date else { continue }
+            report.firstEvent = min(report.firstEvent ?? date, date)
+            report.lastEvent = max(report.lastEvent ?? date, date)
+            report.samples += RingEventDecoder.samples(from: event, at: date).count
+        }
     }
 
     func exportCapture() async -> URL? {
@@ -199,14 +213,21 @@ actor RingCaptureStore {
         events = (try? decoder.decode([RingEvent].self, from: data)) ?? []
     }
 
-    func append(_ newEvents: [RingEvent]) {
+    /// Atomically checkpoints a batch. The in-memory copy is only replaced after disk has
+    /// accepted it, matching the cursor ordering in `RingSyncService`.
+    func appendAndSave(_ newEvents: [RingEvent]) throws {
         loadIfNeeded()
-        events.append(contentsOf: newEvents)
+        var updated = events
+        updated.append(contentsOf: newEvents)
         // A long drain can be tens of thousands of events; cap the capture so it stays
         // exportable and does not grow without bound.
-        if events.count > 200_000 {
-            events.removeFirst(events.count - 200_000)
+        if updated.count > 200_000 {
+            updated.removeFirst(updated.count - 200_000)
         }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(updated).write(to: fileURL, options: .atomic)
+        events = updated
     }
 
     func save() throws {

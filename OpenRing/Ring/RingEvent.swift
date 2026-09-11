@@ -8,37 +8,61 @@ struct RingEvent: Codable, Hashable, Identifiable {
     var body: [UInt8]
     /// Order received — event timestamps are not unique, so this is what makes rows distinct.
     var sequence: Int
+    /// Host time when this event was received. Combined with the ring's relative counter
+    /// after a drain to recover wall-clock time without pretending the counter is Unix time.
+    var capturedAt: Date?
 
     var id: String { "\(sequence)-\(tag)-\(rawTimestamp)" }
 
     var hexBody: String { body.map { String(format: "%02x", $0) }.joined() }
 
-    /// Event bodies begin with a `u32 LE` timestamp; the epoch is not documented, so this
-    /// covers the two plausible readings and reports which one it used.
-    enum TimeBase: String, Codable { case unixSeconds, deciseconds, unknown }
-
-    var timeBase: TimeBase {
-        if rawTimestamp > 1_000_000_000 { return .unixSeconds }
-        if rawTimestamp > 100_000_000 { return .deciseconds }
-        return .unknown
-    }
-
-    var date: Date? {
-        switch timeBase {
-        case .unixSeconds: return Date(timeIntervalSince1970: Double(rawTimestamp))
-        case .deciseconds: return Date(timeIntervalSince1970: Double(rawTimestamp) / 10)
-        case .unknown: return nil
-        }
-    }
-
-    static func parse(frame: RingProtocol.Frame, sequence: Int) -> RingEvent? {
+    /// The envelope timestamp is a per-boot decisecond counter, not Unix time. It resets
+    /// when the ring reboots, so a wall-clock date requires an epoch anchor across events.
+    static func parse(frame: RingProtocol.Frame, sequence: Int, capturedAt: Date = Date()) -> RingEvent? {
         guard frame.tag >= 0x41, frame.payload.count >= 4 else { return nil }
         return RingEvent(
             tag: frame.tag,
             rawTimestamp: RingProtocol.readUInt32(frame.payload, at: 0),
             body: Array(frame.payload.dropFirst(4)),
-            sequence: sequence
+            sequence: sequence,
+            capturedAt: capturedAt
         )
+    }
+}
+
+/// Resolves a drain's per-boot decisecond counters to wall-clock time. A reboot is a large
+/// backward jump; each epoch's newest counter is pinned to when that event was captured.
+enum RingEventClock {
+    static let rebootSlack: UInt64 = 6 * 60 * 60 * 10
+
+    private struct Epoch {
+        var maximum: UInt32
+        var anchor: Date?
+    }
+
+    static func dates(for events: [RingEvent]) -> [Date?] {
+        var epochs: [Epoch] = []
+        var eventEpochs: [Int] = []
+
+        for event in events {
+            if let last = epochs.indices.last,
+               UInt64(event.rawTimestamp) + rebootSlack >= UInt64(epochs[last].maximum) {
+                eventEpochs.append(last)
+                if event.rawTimestamp >= epochs[last].maximum {
+                    epochs[last].maximum = event.rawTimestamp
+                    if let capturedAt = event.capturedAt { epochs[last].anchor = capturedAt }
+                }
+            } else {
+                epochs.append(Epoch(maximum: event.rawTimestamp, anchor: event.capturedAt))
+                eventEpochs.append(epochs.count - 1)
+            }
+        }
+
+        return zip(events, eventEpochs).map { event, epochIndex in
+            let epoch = epochs[epochIndex]
+            guard let anchor = epoch.anchor else { return nil }
+            return anchor.addingTimeInterval(-Double(epoch.maximum - event.rawTimestamp) / 10)
+        }
     }
 }
 
@@ -135,8 +159,8 @@ enum RingEventDecoder {
 
     /// Samples this decoder can produce with confidence. Anything not listed here is kept as
     /// raw bytes rather than guessed at.
-    static func samples(from event: RingEvent) -> [RingSample] {
-        guard let date = event.date else { return [] }
+    static func samples(from event: RingEvent, at date: Date?) -> [RingSample] {
+        guard let date else { return [] }
         switch kind(for: event.tag) {
         case .temperature:
             // A run of int16 hundredths-of-a-degree, one every 30 s, ending at the event time.

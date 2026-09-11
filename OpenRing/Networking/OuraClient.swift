@@ -254,9 +254,10 @@ struct OuraClient {
         // granted scopes, which no refresh can fix — and since Oura's refresh tokens are
         // single use, retrying a 403 spends one every time, on every failing endpoint.
         if status == 401 {
-            guard let refreshed = try? await tokens.refreshedToken() else {
-                throw OuraError.unauthorized
-            }
+            // Preserve the provider's reason. In particular, collapsing a Keychain write
+            // failure into "unauthorized" tells the user to sign in again even though the
+            // newly rotated single-use refresh token is what could not be persisted.
+            let refreshed = try await tokens.refreshedToken()
             accessToken = refreshed
             usedFreshToken = true
             (data, status) = try await send(url: url, accessToken: accessToken)

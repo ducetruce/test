@@ -116,6 +116,30 @@ enum RingProtocol {
         Frame(tag: Opcode.notifications.rawValue, payload: [0x3F])
     }
 
+    /// App-observed history categories. Registering these before a drain is part of the
+    /// normal client handshake on current firmware; the flag words are little-endian.
+    static func eventCategorySubscriptions() -> [Frame] {
+        let categories: [(UInt8, UInt16)] = [
+            (0x14, 0x1000), (0x18, 0x1000), (0x28, 0x0900),
+            (0x34, 0x0400), (0x04, 0x1000), (0x08, 0x1000)
+        ]
+        return categories.map { category, flags in
+            Frame(tag: Opcode.productInfo.rawValue, payload: [
+                category, UInt8(flags & 0xFF), UInt8(flags >> 8)
+            ])
+        }
+    }
+
+    /// Safe feature-status/bundling sweep used by the official app before history sync.
+    /// These query or register existing behavior; they do not enable experimental sensors.
+    static func appParameterSweep() -> [Frame] {
+        let payloads: [[UInt8]] = [
+            [0x20, 0x02], [0x20, 0x04], [0x03, 0x01], [0x20, 0x0B],
+            [0x20, 0x0D], [0x20, 0x03], [0x20, 0x0B], [0x20, 0x10]
+        ]
+        return payloads.map { Frame(tag: Opcode.extended.rawValue, payload: $0) }
+    }
+
     /// `start_timestamp: u32 LE | max_events: u8 | flags: i32 LE`.
     ///
     /// `maxEvents: 0` with `flags: -1` is the acknowledgement form: it advances the ring's

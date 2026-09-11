@@ -22,6 +22,20 @@ final class RingFrameTests: XCTestCase {
         XCTAssertEqual(RingProtocol.acknowledge(cursor: 7).payload.dropFirst(4).first, 0)
     }
 
+    func testCurrentAppStyleHistorySetupPackets() {
+        XCTAssertEqual(Array(RingProtocol.enableEventStream().encoded), [0x16, 0x01, 0x02])
+        XCTAssertEqual(
+            RingProtocol.eventCategorySubscriptions().map { Array($0.encoded) },
+            [
+                [0x18, 0x03, 0x14, 0x00, 0x10], [0x18, 0x03, 0x18, 0x00, 0x10],
+                [0x18, 0x03, 0x28, 0x00, 0x09], [0x18, 0x03, 0x34, 0x00, 0x04],
+                [0x18, 0x03, 0x04, 0x00, 0x10], [0x18, 0x03, 0x08, 0x00, 0x10]
+            ]
+        )
+        XCTAssertEqual(Array(RingProtocol.appParameterSweep()[0].encoded), [0x2F, 0x02, 0x20, 0x02])
+        XCTAssertEqual(Array(RingProtocol.appParameterSweep()[2].encoded), [0x2F, 0x02, 0x03, 0x01])
+    }
+
     func testReaderReassemblesFramesSplitAcrossNotifications() throws {
         var reader = RingProtocol.FrameReader()
         XCTAssertTrue(reader.append(Data([0x11, 0x08, 0x08, 0x00])).isEmpty)
@@ -118,13 +132,12 @@ final class RingFrameTests: XCTestCase {
 }
 
 final class RingEventTests: XCTestCase {
-    func testEventTakesItsTimestampFromTheFirstFourBytes() throws {
-        // 0x66000000 = 1711276032, comfortably a Unix second count.
-        let frame = RingProtocol.Frame(tag: 0x46, payload: [0x00, 0x00, 0x00, 0x66, 0xAA, 0xBB])
+    func testEventTakesItsRelativeTimestampFromTheFirstFourBytes() throws {
+        let timestamp: UInt32 = 12_214_277
+        let frame = RingProtocol.Frame(tag: 0x46, payload: RingProtocol.littleEndian(timestamp) + [0xAA, 0xBB])
         let event = try XCTUnwrap(RingEvent.parse(frame: frame, sequence: 0))
-        XCTAssertEqual(event.rawTimestamp, 0x6600_0000)
+        XCTAssertEqual(event.rawTimestamp, timestamp)
         XCTAssertEqual(event.body, [0xAA, 0xBB])
-        XCTAssertEqual(event.timeBase, .unixSeconds)
     }
 
     func testNonEventFramesAreRejected() {
@@ -165,10 +178,42 @@ final class RingEventTests: XCTestCase {
         }
         let frame = RingProtocol.Frame(tag: 0x46, payload: [0x00, 0x00, 0x00, 0x66] + body)
         let event = try XCTUnwrap(RingEvent.parse(frame: frame, sequence: 0))
-        let samples = RingEventDecoder.samples(from: event)
+        let samples = RingEventDecoder.samples(from: event, at: Date(timeIntervalSince1970: 1_000_000))
         // 99.99 °C is a decode error, not a skin temperature, and is dropped.
         XCTAssertEqual(samples.count, 2)
         XCTAssertEqual(samples.first?.value ?? 0, 35.10, accuracy: 0.001)
+    }
+
+    func testRelativeClockAnchorsNewestEventToCaptureTime() throws {
+        let anchor = Date(timeIntervalSince1970: 2_000_000_000)
+        let older = try XCTUnwrap(RingEvent.parse(
+            frame: .init(tag: 0x46, payload: RingProtocol.littleEndian(12_000_000) + [0, 0]),
+            sequence: 0, capturedAt: anchor.addingTimeInterval(-1)
+        ))
+        let newest = try XCTUnwrap(RingEvent.parse(
+            frame: .init(tag: 0x46, payload: RingProtocol.littleEndian(12_000_100) + [0, 0]),
+            sequence: 1, capturedAt: anchor
+        ))
+        let dates = RingEventClock.dates(for: [older, newest])
+        XCTAssertEqual(try XCTUnwrap(dates[0]).timeIntervalSince1970,
+                       anchor.addingTimeInterval(-10).timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(dates[1], anchor)
+    }
+
+    func testRelativeClockStartsANewEpochAfterReboot() throws {
+        let firstAnchor = Date(timeIntervalSince1970: 2_000_000_000)
+        let secondAnchor = firstAnchor.addingTimeInterval(3_600)
+        let beforeReboot = try XCTUnwrap(RingEvent.parse(
+            frame: .init(tag: 0x46, payload: RingProtocol.littleEndian(9_000_000) + [0, 0]),
+            sequence: 0, capturedAt: firstAnchor
+        ))
+        let afterReboot = try XCTUnwrap(RingEvent.parse(
+            frame: .init(tag: 0x46, payload: RingProtocol.littleEndian(1_000) + [0, 0]),
+            sequence: 1, capturedAt: secondAnchor
+        ))
+        let dates = RingEventClock.dates(for: [beforeReboot, afterReboot])
+        XCTAssertEqual(dates[0], firstAnchor)
+        XCTAssertEqual(dates[1], secondAnchor)
     }
 
     func testTagsMapToFamilies() {
@@ -380,9 +425,9 @@ final class OuraScopeTests: XCTestCase {
     /// Credentials stored before scope tracking cover an unknown set, so they must prompt
     /// rather than silently claiming every requested permission was granted.
     func testCredentialsFromBeforeScopeTrackingArePromptedToReauthorise() throws {
-        let legacy = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "c",
-                                     refreshToken: "d", expiresAt: Date(), grantedScopes: [])
-        XCTAssertTrue(legacy.grantedScopes.isEmpty, "an empty grant means unknown, not complete")
+        let json = #"{"clientID":"a","clientSecret":"b","accessToken":"c","refreshToken":"d","expiresAt":1800000000}"#
+        let legacy = try XCTUnwrap(OuraAuth.decodeStoredCredentials(Data(json.utf8)))
+        XCTAssertTrue(legacy.grantedScopes.isEmpty, "an absent historical grant means unknown, not complete")
         XCTAssertFalse(Set(OuraAuth.scopes).isSubset(of: Set(legacy.grantedScopes)))
     }
 
@@ -442,6 +487,42 @@ final class RefreshCoalescingTests: XCTestCase {
                                       grantedScopes: OuraAuth.scopes)
         XCTAssertTrue(expired.isExpired, "inside the safety margin, so reuse must not apply")
     }
+
+    func testRefreshFailureReasonIsNotCollapsedIntoUnauthorized() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [UnauthorizedURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = OuraClient(tokens: StorageFailingTokenProvider(), session: session)
+
+        do {
+            try await client.validateCredentials()
+            XCTFail("a 401 followed by failed secure storage must fail")
+        } catch {
+            guard case OuraError.secureStorageFailed = error else {
+                return XCTFail("expected secureStorageFailed, got \(error)")
+            }
+        }
+    }
+}
+
+private struct StorageFailingTokenProvider: OuraTokenProviding {
+    func token() async throws -> String { "stale" }
+    func refreshedToken() async throws -> String {
+        throw OuraError.secureStorageFailed("the rotated token")
+    }
+}
+
+private final class UnauthorizedURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 401,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data())
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }
 
 private final class RefreshURLProtocol: URLProtocol {

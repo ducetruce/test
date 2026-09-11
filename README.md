@@ -110,16 +110,21 @@ reaches the ring but not your phone is a ring you have locked yourself out of. T
 reset command itself is deliberately **not** implemented: the dock does it safely, and a
 health app should not carry a one-tap button that wipes your ring.
 
-Implemented in full, from the published protocol notes:
+Implemented for the documented **legacy history-event path**:
 
 - GATT service/characteristic discovery and frame reassembly across notifications
   (`tag | length | payload`)
 - The nonce challenge: request nonce → AES-128-ECB encrypt with your key → authenticate
-- Stream setup, time sync, data flush
+- Current app-style stream/category setup, feature-status sweep, time sync and data flush
 - The paged drain: `GetEvent(cursor)` → collect frames → acknowledge with a zero-event
   request → advance the cursor → repeat until the `0x11` summary reports zero bytes left
   (silence is explicitly *not* treated as completion)
 - Batches of 64 events so a dropped connection costs one batch, not the whole drain
+
+Current limitation: capability negotiation and Ring 5's faster `ExtGetEvent` (`0x2f/0x41`)
+bundle path are not implemented yet. Ring 5 also supports the legacy path used here, but it
+is slower. The ring timestamps on that path are per-boot decisecond counters, not Unix time;
+OpenRing splits counter resets into boot epochs and anchors each epoch to capture time.
 
 Deliberately **not** implemented: most per-tag event body layouts, which are not publicly
 documented. Rather than guess at byte offsets, the app decodes only what has published
