@@ -561,6 +561,7 @@ final class RecoveryTimeContributorTests: XCTestCase {
         var database = Database()
         // No preceding days, so there is no recent load and nothing to recover from.
         database.activity = [Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)]
+        database.sleep = [Fixtures.night(day: day, hours: 7.5)]
 
         let contributor = try recovery(in: database, on: day)
         XCTAssertEqual(contributor.score, 100, accuracy: 0.001)
@@ -576,6 +577,7 @@ final class RecoveryTimeContributorTests: XCTestCase {
             Fixtures.activity(day: day.adding(days: -1), steps: 9_000, activeCalories: 400),
             Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)
         ]
+        database.sleep = [Fixtures.night(day: day, hours: 7.5)]
 
         let contributor = try recovery(in: database, on: day)
         XCTAssertEqual(contributor.score, 75, accuracy: 0.001)
@@ -589,6 +591,7 @@ final class RecoveryTimeContributorTests: XCTestCase {
         let day = Day(year: 2026, month: 8, day: 8)
         var database = Database()
         database.activity = [Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)]
+        database.sleep = [Fixtures.night(day: day, hours: 7.5)]
         let unloaded = try recovery(in: database, on: day)
 
         database.activity = [
@@ -601,5 +604,26 @@ final class RecoveryTimeContributorTests: XCTestCase {
         XCTAssertGreaterThan(unloaded.score, loaded.score)
         XCTAssertEqual(unloaded.detail, "Well recovered")
         XCTAssertEqual(loaded.detail, "Recovery still catching up")
+    }
+
+    /// Whether last night was poor is unknown with no sleep record, not "no" — the contributor
+    /// used to assume 80 (fine) in that gap, entering a fabricated value as if it were
+    /// measured. It must drop out instead, the same way every other conditional contributor in
+    /// `readinessScore` already handles a missing signal.
+    func testMissingSleepRecordOmitsTheContributorRatherThanAssumingItWentFine() throws {
+        let day = Day(year: 2026, month: 8, day: 8)
+        var database = Database()
+        database.activity = [
+            Fixtures.activity(day: day.adding(days: -2), steps: 9_000, activeCalories: 400),
+            Fixtures.activity(day: day.adding(days: -1), steps: 9_000, activeCalories: 400),
+            Fixtures.activity(day: day, steps: 9_000, activeCalories: 400)
+        ]
+        // No sleep record at all.
+
+        let score = try XCTUnwrap(engine.activityScore(for: day, in: database))
+        XCTAssertNil(score.contributors.first { $0.id == "recoveryTime" })
+        // The remaining contributors' weight must still sum to a full renormalised score,
+        // not silently lose coverage because one contributor opted out.
+        XCTAssertEqual(score.coverage, 1 - 0.08, accuracy: 0.001)
     }
 }

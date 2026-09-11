@@ -357,35 +357,42 @@ struct ScoreEngine {
         ))
 
         // Recovery time: a hard block of training right before a poor night is the one case
-        // where doing more should *cost* activity points.
-        let recentLoad = Day.range(from: day.adding(days: -2), through: day.adding(days: -1))
-            .compactMap { database.activityDay($0)?.trainingMETMinutes }
-            .reduce(0, +)
-        let lastNightScore = sleepScore(for: day, in: database)?.value ?? 80
+        // where doing more should *cost* activity points. That reading needs an actual sleep
+        // score for last night — with none, "was last night poor?" is unknown, not "no", and
+        // the contributor used to assume 80 (fine) in that gap. A fabricated input entering a
+        // score as if it were measured is exactly what `Contributor.coverage` exists to avoid,
+        // so this contributor now drops out and lets `weightedScore` renormalise around it,
+        // same as every other conditional contributor in `readinessScore` already does for a
+        // missing signal — rather than guessing.
+        if let lastNightScore = sleepScore(for: day, in: database)?.value {
+            let recentLoad = Day.range(from: day.adding(days: -2), through: day.adding(days: -1))
+                .compactMap { database.activityDay($0)?.trainingMETMinutes }
+                .reduce(0, +)
 
-        /// Not fitted. A September 2026 fit put this at 88, which raised the share of days
-        /// landing within 5 points of Oura (66.4% -> 71.3% held-out) while leaving mean error
-        /// unchanged at ~4.9 points and making bias slightly worse. That is a threshold metric
-        /// improving without the score getting more accurate, so it was backed out; the level
-        /// stays at 100 until it can be judged on mean error.
-        let wellRecovered: Double = 100
-        let recoveryScore: Double
-        if recentLoad > 500 && lastNightScore < 70 {
-            recoveryScore = 45
-        } else if recentLoad > 500 || lastNightScore < 70 {
-            recoveryScore = 75
-        } else {
-            recoveryScore = wellRecovered
+            /// Not fitted. A September 2026 fit put this at 88, which raised the share of days
+            /// landing within 5 points of Oura (66.4% -> 71.3% held-out) while leaving mean
+            /// error unchanged at ~4.9 points and making bias slightly worse. That is a
+            /// threshold metric improving without the score getting more accurate, so it was
+            /// backed out; the level stays at 100 until it can be judged on mean error.
+            let wellRecovered: Double = 100
+            let recoveryScore: Double
+            if recentLoad > 500 && lastNightScore < 70 {
+                recoveryScore = 45
+            } else if recentLoad > 500 || lastNightScore < 70 {
+                recoveryScore = 75
+            } else {
+                recoveryScore = wellRecovered
+            }
+            contributors.append(Contributor(
+                id: "recoveryTime",
+                label: "Recovery time",
+                score: recoveryScore,
+                weight: 0.08,
+                // Compared against the constant rather than a literal, so refitting the level
+                // cannot silently leave every day labelled "Recovery still catching up".
+                detail: recoveryScore == wellRecovered ? "Well recovered" : "Recovery still catching up"
+            ))
         }
-        contributors.append(Contributor(
-            id: "recoveryTime",
-            label: "Recovery time",
-            score: recoveryScore,
-            weight: 0.08,
-            // Compared against the constant rather than a literal, so refitting the level
-            // cannot silently leave every day labelled "Recovery still catching up".
-            detail: recoveryScore == wellRecovered ? "Well recovered" : "Recovery still catching up"
-        ))
 
         let outcome = weightedScore(contributors)
         return Score(

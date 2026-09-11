@@ -166,7 +166,10 @@ iOS rendered half of it black), and the loss of the previous-refresh-token fallb
   unchanged at ~4.9 and made bias slightly worse, so days were crossing a threshold without
   the score getting more accurate. Fitting all 29 activity parameters at once looked better on
   average (+3.5pt within-5) but its spread crossed below baseline — ~100 training days will
-  not support that many free parameters. Whatever is fitted next here, judge it on mean error,
+  not support that many free parameters. Separately, its `lastNightScore ?? 80` fallback —
+  a fabricated "fine" entering the score whenever there was no sleep record — is fixed: the
+  contributor now drops out and lets `weightedScore` renormalise around it, rather than assume.
+  Whatever is fitted next here, judge it on mean error,
   not the within-5 count; the two disagreed once already.
 - Subscription-gated for real, confirmed against the account: cardiovascular age, resilience,
   VO₂ max.
