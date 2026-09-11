@@ -133,7 +133,7 @@ struct SyncEngine {
         // user to re-authorise for something re-authorising cannot fix.
         let rejected = [cvaFailure, resilienceFailure, vo2Failure, ringFailure]
             .compactMap { $0 }
-            .filter { $0.contains("rejected the credentials") }
+            .filter { $0.contains("rejected the credentials") || $0.contains("sign-in is valid") }
         if !rejected.isEmpty {
             warnings.append(
                 "\(rejected.count) metric(s) were refused while the rest of the sync succeeded — "

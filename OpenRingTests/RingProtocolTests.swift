@@ -413,3 +413,28 @@ final class RefreshCoalescingTests: XCTestCase {
         XCTAssertTrue(expired.isExpired, "inside the safety margin, so reuse must not apply")
     }
 }
+
+final class UnauthorisedMeaningTests: XCTestCase {
+    /// Oura answers 401 both for a stale token and for data an account cannot see. Only the
+    /// first is fixed by signing in again, so the two must not share a message.
+    func testNotEntitledDoesNotTellTheUserToSignInAgain() {
+        let message = (OuraError.notEntitled.errorDescription ?? "").lowercased()
+        XCTAssertTrue(message.contains("plan"))
+        XCTAssertTrue(message.contains("valid"))
+        XCTAssertNotEqual(OuraError.notEntitled.errorDescription, OuraError.unauthorized.errorDescription)
+    }
+
+    func testStaleTokenMessageStillPointsAtSigningIn() {
+        let message = (OuraError.unauthorized.errorDescription ?? "").lowercased()
+        XCTAssertTrue(message.contains("sign in again"))
+    }
+
+    func testAllThreeRejectionKindsReadDifferently() {
+        let messages = Set([
+            OuraError.unauthorized.errorDescription,
+            OuraError.forbidden.errorDescription,
+            OuraError.notEntitled.errorDescription
+        ].compactMap { $0 })
+        XCTAssertEqual(messages.count, 3, "each rejection needs its own remedy")
+    }
+}

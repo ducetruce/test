@@ -5,6 +5,7 @@ enum OuraError: LocalizedError {
     case notAuthorised
     case unauthorized
     case forbidden
+    case notEntitled
     case rateLimited
     case server(status: Int, body: String)
     case transport(Error)
@@ -23,6 +24,8 @@ enum OuraError: LocalizedError {
             return "Not connected to Oura yet. Sign in from Settings."
         case .unauthorized:
             return "Oura rejected the credentials. Sign in again from Settings."
+        case .notEntitled:
+            return "Refused even though the sign-in is valid, so this is not a login problem. The metric is probably not part of your Oura plan — though if you have not signed in again since new permissions were added, that is worth trying once."
         case .forbidden:
             return "Your Oura sign-in does not cover this data. Either the permission was not granted when you authorised, or it is not part of your Oura plan."
         case .tokenNotRefreshable:
@@ -223,6 +226,7 @@ struct OuraClient {
 
         var accessToken = try await tokens.token()
         var (data, status) = try await send(url: url, accessToken: accessToken)
+        var usedFreshToken = false
 
         // Only 401. A 403 means the token is valid but this endpoint is not covered by the
         // granted scopes, which no refresh can fix — and since Oura's refresh tokens are
@@ -232,6 +236,7 @@ struct OuraClient {
                 throw OuraError.unauthorized
             }
             accessToken = refreshed
+            usedFreshToken = true
             (data, status) = try await send(url: url, accessToken: accessToken)
         }
 
@@ -239,7 +244,10 @@ struct OuraClient {
         case 200..<300:
             break
         case 401:
-            throw OuraError.unauthorized
+            // A 401 that survives a refresh is not a stale token — Oura also answers 401
+            // for data an account is not entitled to, and telling the user to sign in
+            // again cannot fix that.
+            throw usedFreshToken ? OuraError.notEntitled : OuraError.unauthorized
         case 403:
             throw OuraError.forbidden
         case 429:
