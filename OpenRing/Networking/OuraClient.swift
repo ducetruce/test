@@ -15,7 +15,8 @@ enum OuraError: LocalizedError {
     case authorisationFailed(String)
     case authorisationExpired(String)
     case invalidClient(String)
-    case secureStorageFailed(String)
+    /// The failure is nil when the value never reached the Keychain at all.
+    case secureStorageFailed(String, Keychain.WriteFailure?)
 
     var errorDescription: String? {
         switch self {
@@ -39,8 +40,14 @@ enum OuraError: LocalizedError {
             return "Oura rejected the client id and secret, both as form fields and as HTTP Basic auth. Check the secret was copied in full — it is shown only once when the application is created, and can be regenerated in the developer portal. \(detail.prefix(160))"
         case .authorisationExpired(let detail):
             return "Your Oura authorisation is no longer valid and must be granted again. \(detail.prefix(160))"
-        case .secureStorageFailed(let detail):
-            return "Could not save \(detail) securely in the iOS Keychain. Unlock the device and try again."
+        case .secureStorageFailed(let detail, let failure):
+            // Name the cause rather than assuming a locked device: the advice for a missing
+            // entitlement is the opposite of the advice for a lock, and guessing wrong here
+            // has already cost real debugging time.
+            guard let failure else {
+                return "Could not prepare \(detail) for the iOS Keychain."
+            }
+            return "Could not save \(detail) securely in the iOS Keychain — \(failure.cause). (OSStatus \(failure.status))"
         case .rateLimited:
             return "Oura rate-limited the request. Wait a minute and sync again."
         case .server(let status, let body):

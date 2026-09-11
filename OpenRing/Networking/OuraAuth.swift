@@ -267,9 +267,12 @@ actor OuraAuth: OuraTokenProviding {
             return
         }
         guard let data = try? JSONEncoder().encode(credentials),
-              let json = String(data: data, encoding: .utf8),
-              Keychain.set(json, account: Self.keychainAccount) else {
-            throw OuraError.secureStorageFailed("the Oura authorization")
+              let json = String(data: data, encoding: .utf8) else {
+            // Never reached the Keychain, so there is no OSStatus to report.
+            throw OuraError.secureStorageFailed("the Oura authorization", nil)
+        }
+        if let failure = Keychain.set(json, account: Self.keychainAccount).failure {
+            throw OuraError.secureStorageFailed("the Oura authorization", failure)
         }
         self.credentials = credentials
     }

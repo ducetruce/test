@@ -1,4 +1,5 @@
 import XCTest
+import Security
 @testable import OpenRing
 
 final class RingFrameTests: XCTestCase {
@@ -508,7 +509,10 @@ final class RefreshCoalescingTests: XCTestCase {
 private struct StorageFailingTokenProvider: OuraTokenProviding {
     func token() async throws -> String { "stale" }
     func refreshedToken() async throws -> String {
-        throw OuraError.secureStorageFailed("the rotated token")
+        throw OuraError.secureStorageFailed(
+            "the rotated token",
+            Keychain.WriteFailure(status: errSecInteractionNotAllowed)
+        )
     }
 }
 

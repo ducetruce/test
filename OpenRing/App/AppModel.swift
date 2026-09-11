@@ -106,9 +106,10 @@ final class AppModel: ObservableObject {
     func connect(clientID: String, clientSecret: String) async -> String? {
         let trimmedID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Keychain.set(trimmedID, account: Self.clientIDAccount),
-              Keychain.set(trimmedSecret, account: Self.clientSecretAccount) else {
-            return OuraError.secureStorageFailed("the Oura application credentials").localizedDescription
+        // `??` short-circuits, so the secret is not written when the id already failed.
+        if let failure = Keychain.set(trimmedID, account: Self.clientIDAccount).failure
+            ?? Keychain.set(trimmedSecret, account: Self.clientSecretAccount).failure {
+            return OuraError.secureStorageFailed("the Oura application credentials", failure).localizedDescription
         }
         do {
             _ = try await signIn.run(clientID: clientID, clientSecret: clientSecret, auth: AuthResolver.auth)
@@ -130,8 +131,8 @@ final class AppModel: ObservableObject {
         } catch {
             return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-        guard Keychain.set(trimmed, account: Self.tokenAccount) else {
-            return OuraError.secureStorageFailed("the legacy Oura token").localizedDescription
+        if let failure = Keychain.set(trimmed, account: Self.tokenAccount).failure {
+            return OuraError.secureStorageFailed("the legacy Oura token", failure).localizedDescription
         }
         isConnected = true
         hasCompletedOnboarding = true
@@ -179,22 +180,21 @@ final class AppModel: ObservableObject {
     }
 
     @discardableResult
-    func saveRingKey(_ key: String) -> Bool {
-        guard Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.ringKeyAccount) else {
-            return false
-        }
+    func saveRingKey(_ key: String) -> Result<Void, Keychain.WriteFailure> {
+        let outcome = Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.ringKeyAccount)
+        guard outcome.succeeded else { return outcome }
         Keychain.delete(account: Self.pendingRingKeyAccount)
         objectWillChange.send()
-        return true
+        return .success(())
     }
 
-    func stageRingKey(_ key: String) -> Bool {
+    func stageRingKey(_ key: String) -> Result<Void, Keychain.WriteFailure> {
         Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.pendingRingKeyAccount)
     }
 
     func commitStagedRingKey() -> Bool {
         guard let pending = Keychain.get(account: Self.pendingRingKeyAccount), !pending.isEmpty,
-              Keychain.set(pending, account: Self.ringKeyAccount) else { return false }
+              Keychain.set(pending, account: Self.ringKeyAccount).succeeded else { return false }
         Keychain.delete(account: Self.pendingRingKeyAccount)
         objectWillChange.send()
         return true

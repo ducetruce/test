@@ -83,11 +83,11 @@ struct RingSyncView: View {
                 Button("Save") {
                     let changed = keyHex.filter(\.isHexDigit).lowercased()
                         != model.ringKey.filter(\.isHexDigit).lowercased()
-                    if model.saveRingKey(keyHex) {
+                    if let failure = model.saveRingKey(keyHex).failure {
+                        keySaveMessage = OuraError.secureStorageFailed("the ring key", failure).localizedDescription
+                    } else {
                         if changed { sync.resetCursor() }
                         keySaveMessage = "Saved securely."
-                    } else {
-                        keySaveMessage = OuraError.secureStorageFailed("the ring key").localizedDescription
                     }
                 }
                     .disabled(!keyStatus.isValid)
@@ -259,8 +259,8 @@ struct RingSyncView: View {
     private func claimRing() async {
         // Stage before writing: if the process is interrupted after the ring accepts, the
         // exact key remains recoverable. The active working key is untouched until success.
-        guard model.stageRingKey(generatedKey) else {
-            pairingMessage = OuraError.secureStorageFailed("the new ring key").localizedDescription
+        if let failure = model.stageRingKey(generatedKey).failure {
+            pairingMessage = OuraError.secureStorageFailed("the new ring key", failure).localizedDescription
                 + " Nothing was sent to the ring."
             return
         }

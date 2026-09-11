@@ -60,6 +60,27 @@ answered by reading the screen.
 **A 401 that survives a refresh means "this account cannot read this"** — not "the plan
 excludes it". Those differ, and conflating them is what hid the scope bug.
 
+**A failed Keychain write is not automatically a locked device.** Same lesson as the 401,
+found the same way. `Keychain.set` returned a bare `Bool`, so every cause looked alike, and
+the message told the user to unlock a device that was never locked — the real status was
+`errSecMissingEntitlement` (-34018). `Keychain.WriteFailure` now carries the `OSStatus` and
+the message names the cause. Distinct causes that share a symptom must not be collapsed: the
+wrong explanation sends people to look in the wrong place, which cost an afternoon here.
+
+**Nothing this project builds itself can use the Keychain.** CI builds unsigned
+(`CODE_SIGNING_ALLOWED=NO`) and releases are signed by a third party, so no build produced
+here carries an `application-identifier` entitlement — and without one every Keychain write
+returns -34018. The consequence is larger than it sounds: a locally built app can never sign
+in, because credentials cannot be stored, so `isConnected` stays false and `RootView` shows
+onboarding forever. **The five tabs are unreachable on a simulator unless the build is signed
+with a real development team.** `DEVELOPMENT_TEAM=<id>` on the `xcodebuild` command line is
+enough, and keeps the project file clean. Do not try to hand-roll it: ad-hoc re-signing with a
+fabricated `application-identifier` is refused at launch ("Launchd job spawn failed"), with or
+without a plausible team prefix. Both were tried.
+
+For the same reason no test can round-trip the Keychain. `KeychainFailureTests` asserts on the
+status-to-message mapping instead, which is the part that runs unsigned.
+
 **Endpoint date windows are not uniform.** `sleep` and `daily_activity` exclude the
 `end_date` day; `daily_readiness` includes it. `OuraClient.WindowStyle` encodes this. Getting
 it wrong silently drops today's data.
