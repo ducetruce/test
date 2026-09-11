@@ -1,0 +1,103 @@
+name: Build unsigned IPA
+
+# Manual only. An IPA is not needed on every commit, and macOS runners bill at a 10x
+# minute multiplier on private repos.
+#
+# The output is an UNSIGNED .ipa, which is what a signing service (Signulous, ESign,
+# and similar) expects to be handed: they apply their own certificate and entitlements.
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "Bundle identifier to build with (keep it stable — the Keychain entry holding your Oura token is tied to it)"
+        default: "com.openring.local"
+        required: false
+      marketing_version:
+        description: "Version string shown on the device"
+        default: "1.0"
+        required: false
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: xcodebuild -version
+
+      # Archiving with signing disabled produces a bare .app; the signing service supplies
+      # the certificate, profile and entitlements afterwards.
+      - name: Archive without signing
+        id: archive
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project OpenRing.xcodeproj \
+            -scheme OpenRing \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/OpenRing.xcarchive" \
+            PRODUCT_BUNDLE_IDENTIFIER="${{ inputs.bundle_id }}" \
+            MARKETING_VERSION="${{ inputs.marketing_version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            > archive.log 2>&1
+
+      - name: Package into an IPA
+        id: package
+        if: steps.archive.outcome == 'success'
+        continue-on-error: true
+        run: |
+          APP="$RUNNER_TEMP/OpenRing.xcarchive/Products/Applications/OpenRing.app"
+          if [ ! -d "$APP" ]; then
+            echo "No .app in the archive — contents were:"
+            find "$RUNNER_TEMP/OpenRing.xcarchive" -maxdepth 3 || true
+            exit 1
+          fi
+          # An .ipa is just a zip with the app inside a top-level Payload directory.
+          rm -rf "$RUNNER_TEMP/Payload"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          ( cd "$RUNNER_TEMP" && zip -qry OpenRing-unsigned.ipa Payload )
+
+          echo "--- built ---"
+          ls -lh "$RUNNER_TEMP/OpenRing-unsigned.ipa"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist" || true
+
+      - name: Upload IPA
+        if: steps.package.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRing-unsigned-ipa
+          path: ${{ runner.temp }}/OpenRing-unsigned.ipa
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Result
+        run: |
+          if [ "${{ steps.package.outcome }}" = "success" ]; then
+            echo "======================= IPA READY ======================="
+            echo "Download it from this run's Artifacts section, then upload"
+            echo "it to your signing service and install from there."
+            echo "========================================================"
+            exit 0
+          fi
+          echo "===================== ARCHIVE ERRORS ===================="
+          grep -E "\.swift:[0-9]+:[0-9]+: error:" archive.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -40 || true
+          echo "===================== BUILD FAILURES ===================="
+          grep -E "^\*\* .* \*\*|The following build commands failed|error:" archive.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -30 || true
+          echo "========================================================"
+          exit 1
