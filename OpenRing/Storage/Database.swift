@@ -1,5 +1,20 @@
 import Foundation
 
+/// What one endpoint actually returned on the last sync. Kept because a blank ring is
+/// otherwise unattributable: it looks identical whether Oura returned nothing, returned
+/// something that failed to parse, or returned data the scoring then rejected.
+struct EndpointReport: Codable, Hashable, Identifiable {
+    var endpoint: String
+    var requestedFrom: Day
+    var requestedTo: Day
+    var received: Int
+    var newestDay: Day?
+    /// Set when the endpoint returned nothing at all for the most recent requested day.
+    var missingToday: Bool
+
+    var id: String { endpoint }
+}
+
 /// Everything the app knows, in one Codable value. Small enough to keep in memory:
 /// ten years of daily records plus nightly HR/HRV series is a few tens of megabytes.
 struct Database: Codable {
@@ -19,6 +34,7 @@ struct Database: Codable {
     var tags: [DayTag] = []
     var restModePeriods: [RestModePeriod] = []
     var ringInfo: RingInfo?
+    var lastSyncReports: [EndpointReport] = []
     var lastSync: Date?
     var earliestSynced: Day?
 

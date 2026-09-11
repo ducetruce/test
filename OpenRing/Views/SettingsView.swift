@@ -40,6 +40,32 @@ struct SettingsView: View {
                     .disabled(model.isSyncing)
                 }
 
+                if !model.database.lastSyncReports.isEmpty {
+                    Section {
+                        ForEach(model.database.lastSyncReports) { report in
+                            LabeledContent {
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("\(report.received) records")
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+                                    if let newest = report.newestDay {
+                                        Text("newest \(newest.description)")
+                                            .font(.caption2)
+                                            .foregroundStyle(report.missingToday ? .orange : .secondary)
+                                    }
+                                }
+                            } label: {
+                                Text(report.endpoint)
+                                    .font(.system(.footnote, design: .monospaced))
+                            }
+                        }
+                    } header: {
+                        Text("What the last sync returned")
+                    } footer: {
+                        Text("Per endpoint, over the window that was requested. An orange newest date means that endpoint returned nothing for the most recent day asked for — which distinguishes Oura not having the data yet from the app failing to store it.")
+                    }
+                }
+
                 if !model.warnings.isEmpty {
                     Section("Last sync notes") {
                         ForEach(model.warnings, id: \.self) { warning in

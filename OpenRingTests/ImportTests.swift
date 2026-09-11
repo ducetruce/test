@@ -205,3 +205,41 @@ final class ExportImporterTests: XCTestCase {
         XCTAssertThrowsError(try ExportImporter.importFile(at: url, into: &database))
     }
 }
+
+final class EndpointReportTests: XCTestCase {
+    private func report(_ days: [Day], requestedTo: Day) -> EndpointReport {
+        EndpointReport(endpoint: "sleep", requestedFrom: requestedTo.adding(days: -14),
+                       requestedTo: requestedTo, received: days.count,
+                       newestDay: days.max(), missingToday: !days.contains(requestedTo))
+    }
+
+    /// The whole point of the report: separating "Oura had nothing" from "we lost it".
+    func testFlagsWhenTheNewestRequestedDayCameBackEmpty() {
+        let today = Day(year: 2026, month: 9, day: 10)
+        let short = report(Day.range(from: today.adding(days: -5), through: today.adding(days: -1)), requestedTo: today)
+        XCTAssertTrue(short.missingToday)
+        XCTAssertEqual(short.newestDay, today.adding(days: -1))
+
+        let complete = report(Day.range(from: today.adding(days: -5), through: today), requestedTo: today)
+        XCTAssertFalse(complete.missingToday)
+        XCTAssertEqual(complete.newestDay, today)
+    }
+
+    func testEmptyResponseIsReportedAsMissing() {
+        let today = Day(year: 2026, month: 9, day: 10)
+        let none = report([], requestedTo: today)
+        XCTAssertTrue(none.missingToday)
+        XCTAssertNil(none.newestDay)
+        XCTAssertEqual(none.received, 0)
+    }
+
+    func testReportSurvivesADatabaseRoundTrip() throws {
+        var database = Database()
+        database.lastSyncReports = [report([Day(year: 2026, month: 9, day: 9)], requestedTo: Day(year: 2026, month: 9, day: 10))]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let restored = try decoder.decode(Database.self, from: try encoder.encode(database))
+        XCTAssertEqual(restored.lastSyncReports.first?.missingToday, true)
+        XCTAssertEqual(restored.lastSyncReports.first?.endpoint, "sleep")
+    }
+}
