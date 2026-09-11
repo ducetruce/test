@@ -74,17 +74,24 @@ jobs:
           if [ "${{ steps.xcb.outcome }}" = "success" ]; then
             echo "===================== TESTS PASSED ====================="
             grep -cE "^Test Case .* passed" xcodebuild.log | sed 's/^/passing test cases: /' || true
-            grep -E "warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -20 || true
+            grep -E "\.swift:[0-9]+:[0-9]+: warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -20 || true
             echo "======================================================="
             exit 0
           fi
           echo "===================== COMPILE ERRORS ====================="
-          grep -E "error:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -60 || true
+          # Anchored to a real diagnostic location: a bare "error:" also matches runtime
+          # log noise like +[CHHapticPattern patternForKey:error:].
+          grep -E "\.swift:[0-9]+:[0-9]+: error:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -60 || true
           echo "===================== BUILD FAILURES ====================="
-          grep -E "^\*\* .* \*\*|The following build commands failed|Command .* failed" xcodebuild.log | sort -u | head -20 || true
+          grep -E "^\*\* .* \*\*|The following build commands failed" xcodebuild.log | sort -u | head -20 || true
+          echo "===================== RUNTIME CRASH ======================"
+          grep -E "Fatal error|Assertion failed|signal SIGABRT|Crashed:" xcodebuild.log | sort -u | head -20 || true
+          echo "================ TEST ACTIVITY (tail) ===================="
+          # The last "started" line without a matching result is the test that crashed.
+          grep -E "^Test Case |^Test Suite .* (started|passed|failed)" xcodebuild.log | tail -30 || true
           echo "===================== TEST FAILURES ======================"
-          grep -E "Test Case .* failed|XCTAssert.* failed|failed - |Failing tests:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | head -50 || true
+          grep -E "XCTAssert.* failed|error: -\[" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | head -40 || true
           echo "===================== WARNINGS ==========================="
-          grep -E "warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -20 || true
+          grep -E "\.swift:[0-9]+:[0-9]+: warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -20 || true
           echo "=========================================================="
           exit 1
