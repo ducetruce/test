@@ -95,3 +95,59 @@ jobs:
           grep -E "\.swift:[0-9]+:[0-9]+: warning:" xcodebuild.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -20 || true
           echo "=========================================================="
           exit 1
+
+      # An IPA is only wanted occasionally, so it is opt-in per commit rather than a
+      # second job: reusing this runner costs no extra macOS minutes, and it cannot
+      # produce a build whose tests did not pass, because the summary above exits first.
+      #
+      # Trigger it by putting [ipa] anywhere in the commit message.
+      - name: Archive unsigned IPA
+        id: archive
+        if: contains(github.event.head_commit.message, '[ipa]')
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project OpenRing.xcodeproj \
+            -scheme OpenRing \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/OpenRing.xcarchive" \
+            PRODUCT_BUNDLE_IDENTIFIER="com.openring.local" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            > archive.log 2>&1 \
+            || { echo "=== ARCHIVE FAILED ==="; grep -E "error:|^\*\* .* \*\*" archive.log | sed 's|/Users/runner/work/test/test/||' | sort -u | head -40; exit 1; }
+
+      # An .ipa is a zip with the .app inside a top-level Payload directory. Left unsigned
+      # on purpose: a signing service applies its own certificate and entitlements.
+      - name: Package IPA
+        if: steps.archive.outcome == 'success'
+        run: |
+          APP="$RUNNER_TEMP/OpenRing.xcarchive/Products/Applications/OpenRing.app"
+          if [ ! -d "$APP" ]; then
+            echo "No .app in the archive; contents:"
+            find "$RUNNER_TEMP/OpenRing.xcarchive" -maxdepth 3
+            exit 1
+          fi
+          rm -rf "$RUNNER_TEMP/Payload"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/Payload/"
+          ( cd "$RUNNER_TEMP" && zip -qry OpenRing-unsigned.ipa Payload )
+          echo "=============== IPA READY ==============="
+          ls -lh "$RUNNER_TEMP/OpenRing-unsigned.ipa"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist" || true
+          echo "Download from this run's Artifacts section, then upload to your signer."
+          echo "========================================="
+
+      - name: Upload IPA
+        if: steps.archive.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenRing-unsigned-ipa
+          path: ${{ runner.temp }}/OpenRing-unsigned.ipa
+          retention-days: 30
+          if-no-files-found: error
