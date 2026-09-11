@@ -195,6 +195,24 @@ struct OuraClient {
 
     // MARK: - Transport
 
+    /// Records skipped by the most recent `collect`, by endpoint path.
+    static let skippedRecords = SkippedCounter()
+
+    final class SkippedCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var counts: [String: Int] = [:]
+
+        func record(_ path: String, _ skipped: Int) {
+            lock.lock(); defer { lock.unlock() }
+            counts[path, default: 0] += skipped
+        }
+
+        func take(_ path: String) -> Int {
+            lock.lock(); defer { lock.unlock() }
+            return counts.removeValue(forKey: path) ?? 0
+        }
+    }
+
     private func collect<Element: Decodable>(path: String, from start: Day, to end: Day) async throws -> [Element] {
         var results: [Element] = []
         var nextToken: String?
@@ -209,6 +227,7 @@ struct OuraClient {
             }
             let page: OuraDTO.Page<Element> = try await get(path: path, query: query)
             results.append(contentsOf: page.data)
+            if page.skipped > 0 { Self.skippedRecords.record(path, page.skipped) }
             guard let token = page.nextToken, !token.isEmpty else { break }
             nextToken = token
         }

@@ -7,9 +7,34 @@ import Foundation
 /// fractional-second and whole-second ISO-8601, which trips the built-in date strategies.
 enum OuraDTO {
 
+    /// Decodes each record independently.
+    ///
+    /// A plain `[Element]` is all or nothing: one record with an unexpected shape throws,
+    /// and the endpoint yields nothing at all. Six months of blood oxygen can vanish
+    /// because a single row lacks a field. Skipping the bad row and counting it is both
+    /// more useful and more honest than losing the lot.
     struct Page<Element: Decodable>: Decodable {
-        var data: [Element]
+        var data: [Element] = []
         var nextToken: String?
+        /// Records that failed to decode, surfaced so a silent shape change is visible.
+        var skipped: Int = 0
+
+        private enum CodingKeys: String, CodingKey { case data, nextToken }
+
+        private struct Lenient: Decodable {
+            let value: Element?
+            init(from decoder: Decoder) throws {
+                value = try? Element(from: decoder)
+            }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            nextToken = try container.decodeIfPresent(String.self, forKey: .nextToken)
+            let rows = try container.decodeIfPresent([Lenient].self, forKey: .data) ?? []
+            data = rows.compactMap(\.value)
+            skipped = rows.count - data.count
+        }
     }
 
     struct SampleSeries: Decodable {
@@ -155,7 +180,7 @@ enum OuraDTO {
 
     struct DailySpO2: Decodable {
         struct Percentage: Decodable { var average: Double? }
-        var id: String
+        var id: String?
         var day: String
         var spo2Percentage: Percentage?
         var breathingDisturbanceIndex: Double?
@@ -163,7 +188,7 @@ enum OuraDTO {
         func map() -> SpO2Day? {
             guard let day = Day(day) else { return nil }
             return SpO2Day(
-                id: id,
+                id: id ?? "spo2-\(day)",
                 day: day,
                 averagePercentage: spo2Percentage?.average,
                 breathingDisturbanceIndex: breathingDisturbanceIndex
@@ -172,7 +197,7 @@ enum OuraDTO {
     }
 
     struct DailyStress: Decodable {
-        var id: String
+        var id: String?
         var day: String
         var stressHigh: Double?
         var recoveryHigh: Double?
@@ -181,7 +206,7 @@ enum OuraDTO {
         func map() -> StressDay? {
             guard let day = Day(day) else { return nil }
             return StressDay(
-                id: id,
+                id: id ?? "stress-\(day)",
                 day: day,
                 stressHigh: stressHigh,
                 recoveryHigh: recoveryHigh,

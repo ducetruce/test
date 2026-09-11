@@ -272,3 +272,61 @@ final class EndpointReportFlaggingTests: XCTestCase {
         XCTAssertFalse(make([today], to: today, isDaily: true).returnedNothing)
     }
 }
+
+/// A page used to decode all-or-nothing, so one malformed record threw away six months of
+/// data for that endpoint. These pin the lenient behaviour that replaced it.
+final class LenientPageDecodingTests: XCTestCase {
+    private func decode<T: Decodable>(_ json: String, as: T.Type) throws -> OuraDTO.Page<T> {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(OuraDTO.Page<T>.self, from: Data(json.utf8))
+    }
+
+    func testOneBadRecordDoesNotDiscardTheGoodOnes() throws {
+        let json = """
+        {"data":[
+          {"id":"a","day":"2026-05-01","spo2_percentage":{"average":96.5}},
+          {"day":12345},
+          {"id":"c","day":"2026-05-03","spo2_percentage":{"average":97.1}}
+        ]}
+        """
+        let page = try decode(json, as: OuraDTO.DailySpO2.self)
+        XCTAssertEqual(page.data.count, 2)
+        XCTAssertEqual(page.skipped, 1, "the bad row should be counted, not hidden")
+    }
+
+    /// A record with no id is still a real measurement; it gets a synthesised one.
+    func testMissingIdentifierNoLongerLosesTheRecord() throws {
+        let json = """
+        {"data":[{"day":"2026-05-01","spo2_percentage":{"average":96.5},"breathing_disturbance_index":3.2}]}
+        """
+        let page = try decode(json, as: OuraDTO.DailySpO2.self)
+        XCTAssertEqual(page.skipped, 0)
+        let mapped = try XCTUnwrap(page.data.first?.map())
+        XCTAssertEqual(mapped.averagePercentage ?? 0, 96.5, accuracy: 0.001)
+        XCTAssertFalse(mapped.id.isEmpty)
+    }
+
+    func testNullPercentageIsKeptRatherThanTreatedAsCorrupt() throws {
+        let json = """
+        {"data":[{"id":"a","day":"2026-05-01","spo2_percentage":null}]}
+        """
+        let page = try decode(json, as: OuraDTO.DailySpO2.self)
+        XCTAssertEqual(page.data.count, 1)
+        XCTAssertNil(try XCTUnwrap(page.data.first?.map()).averagePercentage)
+    }
+
+    func testAnEmptyPageIsNotAnError() throws {
+        let page = try decode("{\"data\":[]}", as: OuraDTO.DailySpO2.self)
+        XCTAssertTrue(page.data.isEmpty)
+        XCTAssertEqual(page.skipped, 0)
+    }
+
+    func testNextTokenStillPages() throws {
+        let json = """
+        {"data":[{"id":"a","day":"2026-05-01"}],"next_token":"abc"}
+        """
+        let page = try decode(json, as: OuraDTO.DailySpO2.self)
+        XCTAssertEqual(page.nextToken, "abc")
+    }
+}

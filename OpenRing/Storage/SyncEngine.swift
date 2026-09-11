@@ -80,10 +80,12 @@ struct SyncEngine {
 
         // Optional endpoints: keep syncing even when the account has nothing for them.
         let dailySleepScores = (try? await client.dailySleep(from: start, to: today)) ?? [:]
-        let spo2 = try? await client.spo2(from: start, to: today)
-        let stress = try? await client.stress(from: start, to: today)
-        let workouts = try? await client.workouts(from: start, to: today)
-        let personalInfo = try? await client.personalInfo()
+        // These four used to discard their error, which is why blood oxygen could only be
+        // described as "request failed" with no way to ask what failed.
+        let (spo2, spo2Failure) = await optional { try await client.spo2(from: start, to: today) }
+        let (stress, stressFailure) = await optional { try await client.stress(from: start, to: today) }
+        let (workouts, workoutFailure) = await optional { try await client.workouts(from: start, to: today) }
+        let (personalInfo, _) = await optional { try await client.personalInfo() }
 
         // Newer metrics. Not every account or ring generation returns these, and a plan
         // that lacks one should not fail the whole sync, so each is independently optional.
@@ -105,9 +107,10 @@ struct SyncEngine {
 
         // An endpoint that answers with an empty list has not failed; the record count in
         // the report already says so, and a warning here would imply a fault that is not one.
-        if spo2 == nil { warnings.append("Blood oxygen: request failed") }
-        if stress == nil { warnings.append("Daytime stress data unavailable") }
-        if workouts == nil { warnings.append("Workout data unavailable") }
+        for (name, failure) in [("Blood oxygen", spo2Failure), ("Daytime stress", stressFailure),
+                                ("Workouts", workoutFailure)] {
+            if let failure { warnings.append("\(name): \(failure)") }
+        }
         if dailySleepScores.isEmpty { warnings.append("Oura returned no cloud sleep scores — using locally computed scores only") }
 
         database.merge(
@@ -145,10 +148,10 @@ struct SyncEngine {
             Self.report("sleep", start, today, sleep.map(\.day)),
             Self.report("daily_activity", start, today, activity.map(\.day)),
             Self.report("daily_readiness", start, today, readiness.map(\.day)),
-            Self.report("daily_spo2", start, today, (spo2 ?? []).map(\.day)),
-            Self.report("daily_stress", start, today, (stress ?? []).map(\.day)),
+            Self.report("daily_spo2", start, today, (spo2 ?? []).map(\.day), failure: spo2Failure),
+            Self.report("daily_stress", start, today, (stress ?? []).map(\.day), failure: stressFailure),
             // Event-based: a gap is a quiet week, not a fault.
-            Self.report("workout", start, today, (workouts ?? []).map(\.day), isDaily: false),
+            Self.report("workout", start, today, (workouts ?? []).map(\.day), isDaily: false, failure: workoutFailure),
             Self.report("session", start, today, (sessions ?? []).map(\.day), isDaily: false, failure: sessionFailure),
             Self.report("tag", start, today, (tags ?? []).map(\.day), isDaily: false, failure: tagFailure),
             Self.report("daily_cardiovascular_age", start, today, (cardiovascularAge ?? []).map(\.day), failure: cvaFailure),
