@@ -27,14 +27,14 @@ struct TrendsView: View {
                 }
                 .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.canvas)
             .navigationTitle("Trends")
             .refreshable { await model.sync() }
         }
     }
 
     private var chartCard: some View {
-        SectionCard(metric.title, subtitle: "Last \(window) days") {
+        SectionCard(metric.title, subtitle: "Last \(window) days", symbol: "chart.xyaxis.line", tint: metric.tint) {
             if points.isEmpty {
                 EmptyStateView(
                     symbol: "chart.xyaxis.line",
@@ -77,7 +77,7 @@ struct TrendsView: View {
     @ViewBuilder
     private var summaryCard: some View {
         if !points.isEmpty {
-            SectionCard("Summary") {
+            SectionCard("Summary", subtitle: "At a glance", symbol: "sum", tint: metric.tint) {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     StatTile(label: "Average", value: value(average), caption: nil, tint: metric.tint)
                     StatTile(label: "Latest", value: value(points.last?.value), caption: points.last.map { Format.dayLabel($0.day) }, tint: metric.tint)
@@ -89,7 +89,7 @@ struct TrendsView: View {
     }
 
     private var metricPicker: some View {
-        SectionCard("Metric") {
+        SectionCard("Metric", subtitle: "Choose what to compare", symbol: "slider.horizontal.3", tint: metric.tint) {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(TrendMetric.allCases) { option in
                     Button {

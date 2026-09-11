@@ -17,15 +17,11 @@ struct ActivityView: View {
                     )
 
                     if let activity = model.database.activityDay(day) {
+                        if let score = model.dayScores(for: day).activity {
+                            ScoreDetailCard(score: score)
+                        }
                         summaryCard(activity)
                         intensityCard(activity)
-                        if let score = model.dayScores(for: day).activity {
-                            SectionCard("Activity score \(score.value)", subtitle: score.label) {
-                                VStack(spacing: 14) {
-                                    ForEach(score.contributors) { ContributorRow(contributor: $0) }
-                                }
-                            }
-                        }
                         workoutsCard
                         stepsTrendCard
                     } else {
@@ -39,14 +35,14 @@ struct ActivityView: View {
                 }
                 .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.canvas)
             .navigationTitle("Activity")
             .refreshable { await model.sync() }
         }
     }
 
     private func summaryCard(_ activity: ActivityDay) -> some View {
-        SectionCard(Format.integer(activity.steps) + " steps") {
+        SectionCard(Format.integer(activity.steps) + " steps", subtitle: "Today's movement", symbol: "figure.walk", tint: Theme.activity) {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 StatTile(label: "Active calories", value: "\(Int(activity.activeCalories.rounded()))", caption: "Target \(Int(activity.targetCalories.rounded()))", tint: Theme.activity)
                 StatTile(label: "Total calories", value: "\(Int(activity.totalCalories.rounded()))", caption: nil, tint: Theme.activity)
@@ -58,7 +54,7 @@ struct ActivityView: View {
 
     @ViewBuilder
     private func intensityCard(_ activity: ActivityDay) -> some View {
-        SectionCard("Intensity", subtitle: "Minutes by level") {
+        SectionCard("Intensity", subtitle: "Minutes by level", symbol: "flame.fill", tint: Theme.activity) {
             VStack(alignment: .leading, spacing: 14) {
                 Chart {
                     BarMark(x: .value("Minutes", activity.highActivityMinutes), y: .value("Level", "High"))
@@ -91,7 +87,7 @@ struct ActivityView: View {
     private var workoutsCard: some View {
         let workouts = model.database.workoutSessions(day)
         if !workouts.isEmpty {
-            SectionCard("Workouts") {
+            SectionCard("Workouts", symbol: "figure.run", tint: Theme.activity) {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(workouts) { workout in
                         VStack(alignment: .leading, spacing: 2) {
@@ -109,7 +105,7 @@ struct ActivityView: View {
     }
 
     private var stepsTrendCard: some View {
-        SectionCard("Last 14 days", subtitle: "Steps") {
+        SectionCard("Last 14 days", subtitle: "Steps", symbol: "chart.bar.fill", tint: Theme.activity) {
             Chart(model.trend(.steps, days: 14)) { entry in
                 BarMark(
                     x: .value("Day", entry.day.startOfDay(), unit: .day),

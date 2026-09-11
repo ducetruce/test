@@ -20,7 +20,7 @@ struct TodayView: View {
                             title: "No data for \(Format.dayLabel(day))",
                             message: model.isConnected
                                 ? "Pull down to sync. Oura publishes a night once the ring has synced with your phone."
-                                : "Add your Oura personal access token in Settings to start syncing."
+                                : "Connect to Oura in Settings to start syncing."
                         )
                     } else {
                         scoreCarousel

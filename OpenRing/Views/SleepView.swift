@@ -17,15 +17,11 @@ struct SleepView: View {
                     )
 
                     if let night = model.database.mainSleep(on: day) {
+                        if let score = model.dayScores(for: day).sleep {
+                            ScoreDetailCard(score: score)
+                        }
                         stagesCard(night)
                         vitalsCard(night)
-                        if let score = model.dayScores(for: day).sleep {
-                            SectionCard("Sleep score \(score.value)", subtitle: score.label) {
-                                VStack(spacing: 14) {
-                                    ForEach(score.contributors) { ContributorRow(contributor: $0) }
-                                }
-                            }
-                        }
                         recentNightsCard
                     } else {
                         EmptyStateView(
@@ -38,7 +34,7 @@ struct SleepView: View {
                 }
                 .padding(16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Theme.canvas)
             .navigationTitle("Sleep")
             .refreshable { await model.sync() }
         }
@@ -47,7 +43,9 @@ struct SleepView: View {
     private func stagesCard(_ night: SleepPeriod) -> some View {
         SectionCard(
             Format.duration(night.totalSleep) + " asleep",
-            subtitle: "\(Format.clockTime(night.bedtimeStart)) – \(Format.clockTime(night.bedtimeEnd)) · \(Format.duration(night.timeInBed)) in bed"
+            subtitle: "\(Format.clockTime(night.bedtimeStart)) – \(Format.clockTime(night.bedtimeEnd)) · \(Format.duration(night.timeInBed)) in bed",
+            symbol: "bed.double.fill",
+            tint: Theme.sleep
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 Hypnogram(stages: night.stages, start: night.bedtimeStart, end: night.bedtimeEnd)
@@ -64,7 +62,7 @@ struct SleepView: View {
     @ViewBuilder
     private func vitalsCard(_ night: SleepPeriod) -> some View {
         if let heartRate = night.heartRate, !heartRate.isEmpty {
-            SectionCard("Heart rate", subtitle: night.lowestHeartRate.map { "Lowest \(Int($0.rounded())) bpm" }) {
+            SectionCard("Heart rate", subtitle: night.lowestHeartRate.map { "Lowest \(Int($0.rounded())) bpm" }, symbol: "heart.fill", tint: Theme.readiness) {
                 Chart(heartRate.points) { point in
                     LineMark(
                         x: .value("Time", point.date),
@@ -78,7 +76,7 @@ struct SleepView: View {
             }
         }
         if let hrv = night.hrv, !hrv.isEmpty {
-            SectionCard("Heart rate variability", subtitle: night.averageHRV.map { "Average \(Int($0.rounded())) ms" }) {
+            SectionCard("Heart rate variability", subtitle: night.averageHRV.map { "Average \(Int($0.rounded())) ms" }, symbol: "waveform.path.ecg", tint: Theme.sleep) {
                 Chart(hrv.points) { point in
                     AreaMark(
                         x: .value("Time", point.date),
@@ -100,7 +98,7 @@ struct SleepView: View {
     }
 
     private var recentNightsCard: some View {
-        SectionCard("Last 14 nights", subtitle: "Hours asleep") {
+        SectionCard("Last 14 nights", subtitle: "Hours asleep", symbol: "chart.bar.fill", tint: Theme.sleep) {
             Chart(model.trend(.sleepDuration, days: 14)) { entry in
                 BarMark(
                     x: .value("Day", entry.day.startOfDay(), unit: .day),
