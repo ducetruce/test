@@ -8,6 +8,7 @@ import SwiftUI
 final class AppModel: ObservableObject {
     nonisolated static let tokenAccount = "oura-personal-access-token"
     nonisolated static let ringKeyAccount = "oura-ring-auth-key"
+    nonisolated static let pendingRingKeyAccount = "oura-ring-auth-key-pending"
     nonisolated static let clientIDAccount = "oura-client-id"
     nonisolated static let clientSecretAccount = "oura-client-secret"
 
@@ -97,8 +98,12 @@ final class AppModel: ObservableObject {
 
     /// Runs the OAuth2 flow end to end. Returns an error message, or nil on success.
     func connect(clientID: String, clientSecret: String) async -> String? {
-        Keychain.set(clientID.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.clientIDAccount)
-        Keychain.set(clientSecret.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.clientSecretAccount)
+        let trimmedID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Keychain.set(trimmedID, account: Self.clientIDAccount),
+              Keychain.set(trimmedSecret, account: Self.clientSecretAccount) else {
+            return OuraError.secureStorageFailed("the Oura application credentials").localizedDescription
+        }
         do {
             _ = try await signIn.run(clientID: clientID, clientSecret: clientSecret, auth: AuthResolver.auth)
             isConnected = true
@@ -119,7 +124,9 @@ final class AppModel: ObservableObject {
         } catch {
             return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-        Keychain.set(trimmed, account: Self.tokenAccount)
+        guard Keychain.set(trimmed, account: Self.tokenAccount) else {
+            return OuraError.secureStorageFailed("the legacy Oura token").localizedDescription
+        }
         isConnected = true
         hasCompletedOnboarding = true
         return nil
@@ -158,10 +165,37 @@ final class AppModel: ObservableObject {
 
     // MARK: - Ring auth key
 
-    var ringKey: String { Keychain.get(account: Self.ringKeyAccount) ?? "" }
+    /// A staged key wins after an interrupted claim: the ring may already have accepted it,
+    /// so retaining and presenting that key is the only recoverable choice.
+    var ringKey: String {
+        let pending = Keychain.get(account: Self.pendingRingKeyAccount) ?? ""
+        return pending.isEmpty ? (Keychain.get(account: Self.ringKeyAccount) ?? "") : pending
+    }
 
-    func saveRingKey(_ key: String) {
-        Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.ringKeyAccount)
+    @discardableResult
+    func saveRingKey(_ key: String) -> Bool {
+        guard Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.ringKeyAccount) else {
+            return false
+        }
+        Keychain.delete(account: Self.pendingRingKeyAccount)
+        objectWillChange.send()
+        return true
+    }
+
+    func stageRingKey(_ key: String) -> Bool {
+        Keychain.set(key.trimmingCharacters(in: .whitespacesAndNewlines), account: Self.pendingRingKeyAccount)
+    }
+
+    func commitStagedRingKey() -> Bool {
+        guard let pending = Keychain.get(account: Self.pendingRingKeyAccount), !pending.isEmpty,
+              Keychain.set(pending, account: Self.ringKeyAccount) else { return false }
+        Keychain.delete(account: Self.pendingRingKeyAccount)
+        objectWillChange.send()
+        return true
+    }
+
+    func discardStagedRingKey() {
+        Keychain.delete(account: Self.pendingRingKeyAccount)
         objectWillChange.send()
     }
 

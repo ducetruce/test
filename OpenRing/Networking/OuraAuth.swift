@@ -67,11 +67,24 @@ actor OuraAuth: OuraTokenProviding {
 
     private var credentials: OuraCredentials?
     private var lastRefresh: Date?
+    /// Actor isolation alone does not coalesce refreshes: actors are re-entrant while a
+    /// network request is suspended. Every caller must await the same in-flight task or two
+    /// simultaneous 401s can spend the same single-use refresh token.
+    private var refreshTask: Task<OuraCredentials, Error>?
     private let session: URLSession
+    private let persistsCredentials: Bool
 
     init(session: URLSession = .shared) {
         self.session = session
         self.credentials = Self.loadFromKeychain()
+        self.persistsCredentials = true
+    }
+
+    /// Dependency-injected state for deterministic transport and concurrency tests.
+    init(session: URLSession, credentials: OuraCredentials?) {
+        self.session = session
+        self.credentials = credentials
+        self.persistsCredentials = false
     }
 
     var isAuthorised: Bool { credentials != nil }
@@ -165,7 +178,7 @@ actor OuraAuth: OuraTokenProviding {
             previousRefreshToken: nil,
             grantedScopes: grantedScopes
         )
-        store(credentials)
+        try store(credentials)
         return credentials
     }
 
@@ -193,24 +206,44 @@ actor OuraAuth: OuraTokenProviding {
 
     @discardableResult
     private func refresh() async throws -> OuraCredentials {
+        if let refreshTask {
+            return try await refreshTask.value
+        }
         guard let existing = credentials else { throw OuraError.notAuthorised }
-        let refreshed = try await requestToken(
-            form: [
-                "grant_type": "refresh_token",
-                "refresh_token": existing.refreshToken,
-                "client_id": existing.clientID,
-                "client_secret": existing.clientSecret
-            ],
-            clientID: existing.clientID,
-            clientSecret: existing.clientSecret,
-            // Oura may omit refresh_token on a refresh response; keep the old one only in
-            // that case, since a returned one always supersedes it.
-            previousRefreshToken: existing.refreshToken,
-            grantedScopes: existing.grantedScopes
-        )
-        store(refreshed)
-        lastRefresh = Date()
-        return refreshed
+        let task = Task {
+            try await self.requestToken(
+                form: [
+                    "grant_type": "refresh_token",
+                    "refresh_token": existing.refreshToken,
+                    "client_id": existing.clientID,
+                    "client_secret": existing.clientSecret
+                ],
+                clientID: existing.clientID,
+                clientSecret: existing.clientSecret,
+                previousRefreshToken: nil,
+                grantedScopes: existing.grantedScopes
+            )
+        }
+        refreshTask = task
+        do {
+            let refreshed = try await task.value
+            refreshTask = nil
+            do {
+                try store(refreshed)
+            } catch {
+                // The old persisted refresh token has already been spent. Retain the new
+                // credentials for this process so concurrent callers do not spend it again;
+                // the surfaced error tells the user the durable copy needs attention.
+                credentials = refreshed
+                lastRefresh = Date()
+                throw error
+            }
+            lastRefresh = Date()
+            return refreshed
+        } catch {
+            refreshTask = nil
+            throw error
+        }
     }
 
     // MARK: - Storage
@@ -220,11 +253,17 @@ actor OuraAuth: OuraTokenProviding {
         Keychain.delete(account: Self.keychainAccount)
     }
 
-    private func store(_ credentials: OuraCredentials) {
-        self.credentials = credentials
+    private func store(_ credentials: OuraCredentials) throws {
+        guard persistsCredentials else {
+            self.credentials = credentials
+            return
+        }
         guard let data = try? JSONEncoder().encode(credentials),
-              let json = String(data: data, encoding: .utf8) else { return }
-        Keychain.set(json, account: Self.keychainAccount)
+              let json = String(data: data, encoding: .utf8),
+              Keychain.set(json, account: Self.keychainAccount) else {
+            throw OuraError.secureStorageFailed("the Oura authorization")
+        }
+        self.credentials = credentials
     }
 
     private static func loadFromKeychain() -> OuraCredentials? {

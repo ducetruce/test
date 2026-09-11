@@ -67,7 +67,7 @@ final class OuraSignIn: NSObject {
     }
 }
 
-extension OuraSignIn: @preconcurrency ASWebAuthenticationPresentationContextProviding {
+extension OuraSignIn: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         // The key window of the active foreground scene, falling back to a bare anchor so
         // this can never crash on a scene that has gone away mid-flow.

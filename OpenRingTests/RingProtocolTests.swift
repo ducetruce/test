@@ -406,14 +406,28 @@ final class OuraScopeTests: XCTestCase {
 /// so a sync touching a dozen endpoints can see several at once. Each must not spend its
 /// own single-use refresh token.
 final class RefreshCoalescingTests: XCTestCase {
-    func testARecentRefreshIsReusedRatherThanRepeated() {
-        let justRefreshed = Date()
-        let credentials = OuraCredentials(clientID: "a", clientSecret: "b", accessToken: "fresh",
-                                          refreshToken: "r", expiresAt: Date().addingTimeInterval(3600),
-                                          grantedScopes: OuraAuth.scopes)
-        // The condition the actor applies: refreshed within the window and still valid.
-        let withinWindow = Date().timeIntervalSince(justRefreshed) < 60
-        XCTAssertTrue(withinWindow && !credentials.isExpired)
+    override func setUp() {
+        super.setUp()
+        RefreshURLProtocol.reset()
+    }
+
+    func testConcurrentExpiredTokenRequestsShareOneRefresh() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RefreshURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let expired = OuraCredentials(
+            clientID: "client", clientSecret: "secret", accessToken: "old",
+            refreshToken: "single-use", expiresAt: Date(timeIntervalSince1970: 0),
+            grantedScopes: OuraAuth.scopes
+        )
+        let auth = OuraAuth(session: session, credentials: expired)
+
+        async let first = auth.token()
+        async let second = auth.token()
+        let values = try await [first, second]
+
+        XCTAssertEqual(values, ["fresh", "fresh"])
+        XCTAssertEqual(RefreshURLProtocol.requestCount, 1)
     }
 
     func testAnOldRefreshDoesNotBlockANewOne() {
@@ -428,6 +442,41 @@ final class RefreshCoalescingTests: XCTestCase {
                                       grantedScopes: OuraAuth.scopes)
         XCTAssertTrue(expired.isExpired, "inside the safety margin, so reuse must not apply")
     }
+}
+
+private final class RefreshURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var count = 0
+
+    static var requestCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return count
+    }
+
+    static func reset() {
+        lock.lock(); defer { lock.unlock() }
+        count = 0
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        Self.count += 1
+        Self.lock.unlock()
+
+        let body = Data(#"{"access_token":"fresh","refresh_token":"replacement","expires_in":3600,"token_type":"bearer"}"#.utf8)
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 final class UnauthorisedMeaningTests: XCTestCase {

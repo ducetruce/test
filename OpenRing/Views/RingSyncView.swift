@@ -17,6 +17,7 @@ struct RingSyncView: View {
     @State private var generatedKey = ""
     @State private var keyIsBackedUp = false
     @State private var pairingMessage: String?
+    @State private var keySaveMessage: String?
 
     var body: some View {
         List {
@@ -79,8 +80,19 @@ struct RingSyncView: View {
                     .font(.caption)
                     .foregroundStyle(keyStatus.isValid ? Color.secondary : Color.red)
                 Spacer()
-                Button("Save") { model.saveRingKey(keyHex) }
+                Button("Save") {
+                    if model.saveRingKey(keyHex) {
+                        keySaveMessage = "Saved securely."
+                    } else {
+                        keySaveMessage = OuraError.secureStorageFailed("the ring key").localizedDescription
+                    }
+                }
                     .disabled(!keyStatus.isValid)
+            }
+            if let keySaveMessage {
+                Text(keySaveMessage)
+                    .font(.caption)
+                    .foregroundStyle(keySaveMessage.hasPrefix("Saved") ? Color.green : Color.red)
             }
         }
     }
@@ -242,13 +254,19 @@ struct RingSyncView: View {
     }
 
     private func claimRing() async {
-        // Persist before writing: a key that reaches the ring but not the Keychain is a
-        // ring you have locked yourself out of. Keep the old one so a refusal — the usual
-        // case on a ring that was never reset — does not destroy a key that still works.
-        let previousKey = model.ringKey
-        model.saveRingKey(generatedKey)
+        // Stage before writing: if the process is interrupted after the ring accepts, the
+        // exact key remains recoverable. The active working key is untouched until success.
+        guard model.stageRingKey(generatedKey) else {
+            pairingMessage = OuraError.secureStorageFailed("the new ring key").localizedDescription
+                + " Nothing was sent to the ring."
+            return
+        }
         do {
             try await connection.installAuthKey(keyHex: generatedKey)
+            guard model.commitStagedRingKey() else {
+                pairingMessage = "The ring accepted the key, but it could not be promoted in the Keychain. The staged copy is still retained; keep your backup and try saving it again."
+                return
+            }
             keyHex = generatedKey
             // A reset ring starts its event stream from zero.
             sync.resetCursor()
@@ -256,7 +274,7 @@ struct RingSyncView: View {
             generatedKey = ""
             keyIsBackedUp = false
         } catch {
-            model.saveRingKey(previousKey)
+            model.discardStagedRingKey()
             pairingMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
