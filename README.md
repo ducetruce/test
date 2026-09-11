@@ -136,16 +136,28 @@ If the checked-in project file ever goes stale, regenerate it:
 
 ## Getting it onto a phone
 
-Building is solved; installing is a separate wall, because iOS requires a signed build.
-Three routes, none of which need you to own a Mac:
+Building is solved by CI; installing needs a signed build, and iOS will not run an unsigned
+one. The route that needs neither a Mac nor a PC is a signing service (Signulous, ESign and
+similar): they take an unsigned `.ipa`, apply their own certificate and entitlements, and
+install it over the air with no 7-day expiry.
 
-| Route | Cost | Catch |
-|---|---|---|
-| **AltStore / SideStore** with a free Apple ID | free | CI produces an unsigned `.ipa`, you sideload it. AltStore needs a Windows PC; SideStore refreshes on-device. Signature expires every 7 days either way. |
-| **Apple Developer Program** + TestFlight | $99/yr | CI signs and uploads, install is over the air, builds last 90 days. Weigh the $99 against the subscription being replaced. |
-| Borrow a Mac | free | Still only 7 days before it needs re-signing. |
+**To get a build:** push a commit with `[ipa]` anywhere in the message. CI runs the tests as
+usual and, only if they pass, archives an unsigned IPA and attaches it to the run under
+**Actions → the run → Artifacts → `OpenRing-unsigned-ipa`**. Download it, upload it to your
+signer, install.
 
-The unsigned-IPA CI job is not written yet — it is the obvious next step once a route is chosen.
+It rides on the existing job rather than a separate workflow for two reasons: reusing the
+runner costs no extra macOS minutes, and a failing test suite stops the job before an IPA can
+be produced. (A separate `workflow_dispatch` workflow with a "Run workflow" button is not an
+option until this branch reaches the default branch — GitHub only honours that trigger for
+workflows already on the default branch.)
+
+The bundle identifier is `com.openring.local`. Keep it stable: the Keychain entry holding
+your Oura token is tied to it, so changing it means re-entering the token.
+
+Worth knowing: signing services have their certificates revoked by Apple from time to time,
+which makes apps signed with them stop launching until re-signed. That is the trade against
+paying for the Apple Developer Program.
 
 ## Connecting your data
 
