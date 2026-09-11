@@ -144,14 +144,28 @@ struct SyncEngine {
         // Several endpoints rejecting a token that a dozen others accept is not a broken
         // sign-in, whatever the status code says. Saying so beats an error that sends the
         // user to re-authorise for something re-authorising cannot fix.
-        let outsidePlan = [cvaFailure, resilienceFailure, vo2Failure, ringFailure, spo2Failure]
-            .compactMap { $0 }
-            .filter { $0.contains("rejected the credentials") || $0.contains("sign-in is valid") }
-            .count
-        if outsidePlan > 0 {
+        // Name them. "4 metrics" is unattributable: blood oxygen sat in this count for weeks
+        // while the real cause was a scope name this app got wrong, and an unnamed tally gave
+        // no way to notice one had joined or left the group.
+        //
+        // And do not assert the cause. All this observes is a 401 that survived a refresh —
+        // "this account cannot read this", which is usually a subscription boundary but was
+        // not for blood oxygen. The granted-scopes list in Settings is what distinguishes
+        // them, so point at it rather than concluding.
+        let gated = [("cardiovascular age", cvaFailure), ("resilience", resilienceFailure),
+                     ("VO₂ max", vo2Failure), ("ring details", ringFailure),
+                     ("blood oxygen", spo2Failure)]
+            .filter { _, failure in
+                guard let failure else { return false }
+                return failure.contains("rejected the credentials") || failure.contains("sign-in is valid")
+            }
+            .map(\.0)
+        if !gated.isEmpty {
+            let verb = gated.count == 1 ? "metric your account cannot read was" : "metrics your account cannot read were"
             warnings.append(
-                "\(outsidePlan) metric\(outsidePlan == 1 ? " is" : "s are") outside your Oura plan and were "
-                + "skipped. Everything else synced normally — this is a subscription boundary, not a fault."
+                "\(gated.count) \(verb) skipped: \(gated.joined(separator: ", ")). Everything else synced "
+                + "normally. This is usually a subscription boundary; if one of these should be included, "
+                + "check that its permission is listed under \"Permissions Oura granted\" below."
             )
         }
 
