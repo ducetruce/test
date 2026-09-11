@@ -93,7 +93,11 @@ runs blue → red → magenta → yellow, then blinks blue. No root, no jailbrea
 The catch is that a ring is **single-owner**. Claiming it takes it away from the official app,
 and with it cloud sync, the API, data export and Oura's own scores; re-onboarding with the
 official app installs Oura's key and locks this app out until you factory reset again.
-Resetting also wipes the ring's event buffer, so sync before you reset.
+
+That escape never depends on whichever app currently holds the ring. The reset is driven by
+the dock, not over BLE: it needs no app, no key and no authentication, so it works on a ring
+that nothing can talk to — in either direction. Reset, and the ring is blank for whoever
+pairs next. Resetting also wipes the ring's event buffer, so sync before you reset.
 
 **Do not claim your ring yet.** Only three event bodies are decoded so far (below), and
 mapping the rest is much easier while the official app still works, because the cloud gives

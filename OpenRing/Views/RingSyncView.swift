@@ -168,11 +168,16 @@ struct RingSyncView: View {
     private var pairingSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 8) {
-                Text("A factory-reset ring accepts a key from whoever asks first. Reset the ring with the dock (flip it 180° repeatedly until the LED runs blue → red → magenta → yellow, then blinks blue), then install a key here.")
+                Text("A factory-reset ring accepts a key from whoever asks first, so this route needs no key extracted from anywhere. Reset the ring first, then install a key here.")
                     .font(.footnote)
-                Text("This is single-owner. Once you claim the ring, the official Oura app no longer works with it — which means no cloud sync, no API, no data export and no Oura scores — until you factory reset again. Resetting also wipes the ring's stored history, so sync before you reset.")
+                Text("This is single-owner. Once you claim the ring, the official Oura app no longer works with it — no cloud sync, no API, no data export and no Oura scores.")
                     .font(.footnote)
                     .foregroundStyle(.orange)
+                Text("You can always undo it. The factory reset is done by the charging dock, not by an app: flip the ring 180° on the dock, repeatedly, until the LED runs blue → red → magenta → yellow and then blinks blue. It needs no app, no key and no authentication, so it works on a ring that nothing can talk to — including one this app has claimed. After the reset the ring is blank again and the official Oura app can onboard it as new.")
+                    .font(.footnote)
+                Text("The reset also wipes the history stored on the ring, so sync before you reset — in either direction.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             if generatedKey.isEmpty {
@@ -228,7 +233,7 @@ struct RingSyncView: View {
         } header: {
             Text("Claim a factory-reset ring")
         } footer: {
-            Text("The factory reset itself is done with the dock, not from here — a health app should not carry a one-tap button that wipes your ring.")
+            Text("There is deliberately no reset button here — a health app should not carry a one-tap control that wipes your ring. The dock does it, and the dock always works.")
         }
     }
 
