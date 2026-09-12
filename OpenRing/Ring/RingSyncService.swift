@@ -80,7 +80,7 @@ final class RingSyncService: ObservableObject {
         report = Report()
     }
 
-    func sync(using connection: RingConnection, keyHex: String) async {
+    func sync(using connection: RingConnectionType, keyHex: String) async {
         phase = .preparing
         report = Report()
         var drainedEvents: [RingEvent] = []
@@ -124,7 +124,9 @@ final class RingSyncService: ObservableObject {
                 report.bytesLeft = batch.summary.bytesLeft
 
                 // The capture is the source of truth for this experimental path. It must be
-                // durable before the bookmark moves or a crash can skip a whole batch.
+                // durable before the bookmark moves or a crash can skip a whole batch. Guarded
+                // by RingSyncDurabilityTests: a batch that fails to save must never reach the
+                // acknowledgement below.
                 try await ingest(batch.events)
                 drainedEvents.append(contentsOf: batch.events)
                 phase = .draining(events: report.eventsReceived, bytesLeft: batch.summary.bytesLeft)

@@ -149,6 +149,17 @@ key that could be lost mid-claim. Two things from that branch were reverted: a c
 icon PNG (473 of 1024 scanlines; Xcode's asset compiler accepted it, so CI stayed green and
 iOS rendered half of it black), and the loss of the previous-refresh-token fallback.
 
+Of those six, only the BLE-durability one had no regression test — a real, previously-fixed
+defect that a refactor could have silently reopened. `RingConnectionType`
+(`Ring/RingConnection.swift`) extracts exactly what `RingSyncService.sync` needs from a
+connection, since `RingConnection` is `final` and wired directly to `CBCentralManager` with no
+seam a test could use otherwise. `RingSyncDurabilityTests` uses it to prove two things without
+real Bluetooth: a batch is durable before it's acknowledged, and — the case that actually
+discriminates a broken ordering from a correct one — a batch that fails to save is never
+acknowledged at all. Confirmed by deliberately reordering the two lines in `sync` and watching
+the second test fail, then reverting; the first test alone would not have caught it, since it
+doesn't force a save failure.
+
 **Open questions:**
 
 - `ring_configuration` returns a 401 that survives a refresh while every other endpoint

@@ -1,6 +1,52 @@
 import Foundation
 import CoreBluetooth
 
+/// Exactly what `RingSyncService.sync` needs from a connection, extracted so the durability
+/// property that mattered enough to fix once (batches must be saved before the ring is told
+/// they were received — see the comment on that call site in `RingSyncService.sync`) can be
+/// tested without real Bluetooth hardware. `RingConnection` is `final` and wired directly to
+/// `CBCentralManager`/`CBPeripheral`, so nothing about it can be subclassed or driven from a
+/// test; this protocol is the seam instead.
+///
+/// Protocol requirements can't carry default parameter values, so the two calls in `sync`
+/// that relied on one (`fetchEventBatch`'s `timeout`, `note`'s `direction`) get a matching
+/// default reintroduced in the extension below — `RingSyncService.sync`'s call sites are
+/// otherwise unchanged.
+@MainActor
+protocol RingConnectionType: AnyObject {
+    var isAuthenticated: Bool { get }
+    func authenticate(keyHex: String) async throws
+    func write(_ frame: RingProtocol.Frame)
+    @discardableResult
+    func send(
+        _ frame: RingProtocol.Frame,
+        expecting matcher: @escaping (RingProtocol.Frame) -> Bool,
+        timeout: TimeInterval,
+        describedAs label: String
+    ) async throws -> RingProtocol.Frame
+    func fetchEventBatch(
+        from cursor: UInt32,
+        batchSize: UInt8,
+        timeout: TimeInterval,
+        startingSequence: Int
+    ) async throws -> (events: [RingEvent], summary: RingProtocol.EventSummary)
+    func note(_ text: String, direction: RingConnection.LogEntry.Direction)
+}
+
+extension RingConnectionType {
+    func fetchEventBatch(
+        from cursor: UInt32,
+        batchSize: UInt8,
+        startingSequence: Int
+    ) async throws -> (events: [RingEvent], summary: RingProtocol.EventSummary) {
+        try await fetchEventBatch(from: cursor, batchSize: batchSize, timeout: 30, startingSequence: startingSequence)
+    }
+
+    func note(_ text: String) {
+        note(text, direction: .info)
+    }
+}
+
 /// BLE transport for the ring: scan, connect, authenticate, and exchange frames.
 ///
 /// The central manager runs on the main queue, so every delegate callback and every
@@ -8,7 +54,7 @@ import CoreBluetooth
 /// `@MainActor` to make that guarantee explicit; the delegate conformances are marked
 /// `@preconcurrency` because CoreBluetooth's protocols predate actor isolation.
 @MainActor
-final class RingConnection: NSObject, ObservableObject {
+final class RingConnection: NSObject, ObservableObject, RingConnectionType {
 
     enum State: Equatable {
         case idle

@@ -588,3 +588,101 @@ final class UnauthorisedMeaningTests: XCTestCase {
         XCTAssertEqual(messages.count, 3, "each rejection needs its own remedy")
     }
 }
+
+/// Guards the one property in `RingSyncService.sync` that was a real, fixed defect (the audit
+/// found BLE batches acknowledged before they were durable) and had no regression test: a
+/// batch must be saved to the capture store before the ring is told it was received, and must
+/// never be acknowledged at all if it could not be saved. `RingConnectionType` exists so this
+/// can run without real Bluetooth hardware — see the comment on that protocol.
+@MainActor
+final class RingSyncDurabilityTests: XCTestCase {
+    private func event(sequence: Int, timestamp: UInt32) -> RingEvent {
+        RingEvent(tag: 1, rawTimestamp: timestamp, body: [0x01], sequence: sequence, capturedAt: nil)
+    }
+
+    private func completedBatch(_ events: [RingEvent]) -> (events: [RingEvent], summary: RingProtocol.EventSummary) {
+        (events: events, summary: RingProtocol.EventSummary(eventCount: events.count, sleepAnalysisProgress: 0, bytesLeft: 0))
+    }
+
+    func testABatchIsSavedBeforeItIsAcknowledged() async throws {
+        let store = RingCaptureStore(filename: "durability-happy-\(UUID().uuidString).json")
+        let service = RingSyncService(store: store)
+        let fake = FakeRingConnection()
+        fake.scriptedBatches = [completedBatch([event(sequence: 0, timestamp: 100), event(sequence: 1, timestamp: 200)])]
+
+        await service.sync(using: fake, keyHex: "anykey")
+
+        let fetchIndex = fake.calls.firstIndex(of: "fetchEventBatch")
+        let ackIndex = fake.calls.firstIndex(where: { $0.hasPrefix("send:cursor acknowledgement") })
+        let storedCount = await store.count
+        XCTAssertNotNil(fetchIndex)
+        XCTAssertNotNil(ackIndex, "a batch that saved cleanly must still be acknowledged")
+        XCTAssertEqual(storedCount, 2, "the batch must actually be durable, not just attempted")
+        XCTAssertEqual(service.report.finishedCleanly, true)
+    }
+
+    func testABatchIsNeverAcknowledgedIfItCouldNotBeSaved() async throws {
+        // No parent directory is ever created for this path, so the atomic write inside
+        // appendAndSave genuinely fails — a real failure mode, not a synthetic flag.
+        let store = RingCaptureStore(filename: "no-such-directory/\(UUID().uuidString).json")
+        let service = RingSyncService(store: store)
+        let fake = FakeRingConnection()
+        fake.scriptedBatches = [completedBatch([event(sequence: 0, timestamp: 100)])]
+
+        await service.sync(using: fake, keyHex: "anykey")
+
+        XCTAssertFalse(
+            fake.calls.contains { $0.hasPrefix("send:cursor acknowledgement") },
+            "must not tell the ring a batch was received when it could not be saved"
+        )
+        guard case .failed = service.phase else {
+            return XCTFail("expected sync to report failure, got \(service.phase)")
+        }
+    }
+}
+
+@MainActor
+private final class FakeRingConnection: RingConnectionType {
+    var isAuthenticated = false
+    var scriptedBatches: [(events: [RingEvent], summary: RingProtocol.EventSummary)] = []
+    private(set) var calls: [String] = []
+
+    func authenticate(keyHex: String) async throws {
+        calls.append("authenticate")
+        isAuthenticated = true
+    }
+
+    func write(_ frame: RingProtocol.Frame) {
+        calls.append("write")
+    }
+
+    @discardableResult
+    func send(
+        _ frame: RingProtocol.Frame,
+        expecting matcher: @escaping (RingProtocol.Frame) -> Bool,
+        timeout: TimeInterval,
+        describedAs label: String
+    ) async throws -> RingProtocol.Frame {
+        calls.append("send:\(label)")
+        // Only the acknowledgement's matcher (RingProtocol.eventSummary(in:) != nil) is
+        // actually checked by sync() at this call site, so a frame satisfying that is enough.
+        return RingProtocol.Frame(tag: RingProtocol.Opcode.eventSummary.rawValue, payload: [0, 0])
+    }
+
+    func fetchEventBatch(
+        from cursor: UInt32,
+        batchSize: UInt8,
+        timeout: TimeInterval,
+        startingSequence: Int
+    ) async throws -> (events: [RingEvent], summary: RingProtocol.EventSummary) {
+        calls.append("fetchEventBatch")
+        guard !scriptedBatches.isEmpty else {
+            return (events: [], summary: RingProtocol.EventSummary(eventCount: 0, sleepAnalysisProgress: 0, bytesLeft: 0))
+        }
+        return scriptedBatches.removeFirst()
+    }
+
+    func note(_ text: String, direction: RingConnection.LogEntry.Direction) {
+        calls.append("note")
+    }
+}
