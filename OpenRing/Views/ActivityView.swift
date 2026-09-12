@@ -35,6 +35,7 @@ struct ActivityView: View {
                 }
                 .padding(16)
             }
+            .clearsTabBar()
             .background(Theme.canvas)
             .navigationTitle("Activity")
             .refreshable { await model.sync() }

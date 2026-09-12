@@ -43,6 +43,7 @@ struct TodayView: View {
                 }
                 .padding(16)
             }
+            .clearsTabBar()
             .background(Theme.canvas)
             .navigationTitle("Overview")
             .navigationBarTitleDisplayMode(.inline)

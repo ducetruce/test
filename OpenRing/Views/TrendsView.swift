@@ -27,6 +27,7 @@ struct TrendsView: View {
                 }
                 .padding(16)
             }
+            .clearsTabBar()
             .background(Theme.canvas)
             .navigationTitle("Trends")
             .refreshable { await model.sync() }

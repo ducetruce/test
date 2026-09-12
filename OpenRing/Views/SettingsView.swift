@@ -248,6 +248,7 @@ struct SettingsView: View {
                     Text("OpenRing is an independent personal project. It is not affiliated with, endorsed by, or supported by Ōura Health Oy, and the scores it shows are its own, not Oura's.")
                 }
             }
+            .clearsTabBar()
             .navigationTitle("Settings")
             .sheet(item: $exportFile) { file in
                 VStack(spacing: 16) {

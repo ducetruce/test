@@ -38,11 +38,31 @@ enum Theme {
     static let divider = Color.primary.opacity(0.08)
     static let cardRadius: CGFloat = 20
 
+    /// Extra clearance every tab's scrollable content needs at the bottom.
+    ///
+    /// The floating pill tab bar sits above the screen edge rather than flush against it, so
+    /// it isn't a standard opaque bar and none of the five tabs got a safe-area inset for it
+    /// automatically — the last card on every one of them (Today, Sleep, Activity, Trends,
+    /// Settings) sat partly behind the bar. One shared constant, applied the same way
+    /// everywhere, so this can't drift out of sync between tabs again.
+    static let tabBarClearance: CGFloat = 90
+
     static func gradient(for kind: ScoreKind) -> LinearGradient {
         LinearGradient(
             colors: [color(for: kind).opacity(0.24), color(for: kind).opacity(0.07)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
+    }
+}
+
+extension View {
+    /// Reserves `Theme.tabBarClearance` below the content so the last card on a tab is never
+    /// the thing sitting behind the floating tab bar. Apply to the outermost scrollable view
+    /// on every tab — see the comment on `tabBarClearance` for why this exists.
+    func clearsTabBar() -> some View {
+        safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: Theme.tabBarClearance)
+        }
     }
 }
