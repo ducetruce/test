@@ -323,3 +323,20 @@ enum TrendMetric: String, CaseIterable, Identifiable {
         }
     }
 }
+
+#if DEBUG
+extension AppModel {
+    /// Loads `PreviewFixtures.database` and marks the model connected, without touching the
+    /// Keychain or the network. Only in a `#if DEBUG` block so it cannot exist in a release
+    /// build; only called behind a launch-argument gate in `OpenRingApp.swift` so it cannot
+    /// run by accident even in a debug one. See `PreviewFixtures` for why this exists.
+    func loadPreviewFixtures() {
+        database = PreviewFixtures.database
+        recomputeScores()
+        isConnected = true
+        hasCompletedOnboarding = true
+        selectedDay = latestDayWithData
+        isLoaded = true
+    }
+}
+#endif

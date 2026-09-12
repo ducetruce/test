@@ -107,6 +107,22 @@ so Signulous rewrites it. The two are unrelated apps to iOS: installing a locall
 build (`com.example.openring`) alongside the Signulous release is safe and does not touch or
 overwrite the release's data.
 
+**There is now a way to see the five tabs on the simulator too, despite all of the above** —
+`OpenRing/App/PreviewFixtures.swift`. Launch with the `--preview-fixtures` argument
+(`xcrun simctl launch booted com.example.openring --preview-fixtures`) and `OpenRingApp` skips
+onboarding entirely, loading two weeks of synthetic data instead of touching the Keychain or
+network. `#if DEBUG`-only, so it cannot exist in a release build, and gated on the explicit
+argument on top of that, so an ordinary debug run still goes through real onboarding. One day
+in the fixture is deliberately left empty, to see the real empty states without a real account.
+
+Getting this working surfaced a second bug worth remembering: setting `isConnected` and
+`hasCompletedOnboarding` in the fixture loader was not enough on its own —
+`.onChange(of: scenePhase)` fires the instant the scene activates and unconditionally calls
+`refreshConnection()`/`loadFromDisk()`, silently overwriting both back within milliseconds.
+That handler needed the same `--preview-fixtures` guard. The symptom was exactly this class of
+bug's usual tell: internal state visibly correct in the logs the instant after it was set, UI
+still wrong moments later — something else was still running.
+
 For the same reason no test can round-trip the Keychain in CI. `KeychainFailureTests` asserts
 on the status-to-message mapping instead, which is the part that runs unsigned.
 
