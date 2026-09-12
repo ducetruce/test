@@ -75,19 +75,40 @@ the message told the user to unlock a device that was never locked — the real 
 the message names the cause. Distinct causes that share a symptom must not be collapsed: the
 wrong explanation sends people to look in the wrong place, which cost an afternoon here.
 
-**Nothing this project builds itself can use the Keychain.** CI builds unsigned
-(`CODE_SIGNING_ALLOWED=NO`) and releases are signed by a third party, so no build produced
-here carries an `application-identifier` entitlement — and without one every Keychain write
-returns -34018. The consequence is larger than it sounds: a locally built app can never sign
-in, because credentials cannot be stored, so `isConnected` stays false and `RootView` shows
-onboarding forever. **The five tabs are unreachable on a simulator unless the build is signed
-with a real development team.** `DEVELOPMENT_TEAM=<id>` on the `xcodebuild` command line is
-enough, and keeps the project file clean. Do not try to hand-roll it: ad-hoc re-signing with a
-fabricated `application-identifier` is refused at launch ("Launchd job spawn failed"), with or
-without a plausible team prefix. Both were tried.
+**Nothing this project builds itself can use the Keychain on a simulator — not even with a
+real signing team, and there is no command-line fix.** CI builds unsigned
+(`CODE_SIGNING_ALLOWED=NO`) and releases are signed by a third party, so no CI or release build
+carries an `application-identifier` entitlement — every Keychain write returns -34018, and
+since credentials can't be stored, `isConnected` stays false and `RootView` shows onboarding
+forever. A locally-added personal team (Xcode → Settings → Accounts) does not fix this for a
+*simulator* destination: Xcode 27 hard-forces ad-hoc "Sign to Run Locally" signing for every
+`iphonesimulator` build, and nothing on the `xcodebuild` command line overrides it —
+`DEVELOPMENT_TEAM=<id>`, `CODE_SIGN_IDENTITY="Apple Development"`, and even the most specific
+form, `CODE_SIGN_IDENTITY[sdk=iphonesimulator*]=...`, were all tried and all still produced
+`Signing Identity: "Sign to Run Locally"` with an empty entitlements dictionary. Manually
+re-signing an already-built simulator `.app` afterwards doesn't work around it either: it
+breaks launch outright ("Launchd job spawn failed", POSIX 163) — confirmed with *both* an
+ad-hoc identity *and* a real one, so it isn't about which identity signs it, and confirmed even
+when the entitlement was verified present in the resulting binary. Three structurally distinct
+approaches, three hard failures — this is being recorded as settled, not as "still worth
+retrying differently."
 
-For the same reason no test can round-trip the Keychain. `KeychainFailureTests` asserts on the
-status-to-message mapping instead, which is the part that runs unsigned.
+**A real *device* destination does not have this problem.** `xcodebuild build -destination
+'id=<udid>' -allowProvisioningUpdates DEVELOPMENT_TEAM=<id>` against a connected iPhone mints a
+genuine `Apple Development` certificate and a real provisioning profile from Apple's own
+servers — no manual entitlements file needed, and `xcodebuild install` onto that device works
+normally. If the five tabs need to be reached outside of the signed release, that's the way in:
+a debug install to a connected phone, not the simulator.
+
+Also worth knowing: the release build's *actual* bundle identifier on-device is
+`com.openring.local`, not `com.example.openring` as checked in here — third-party signing
+services typically can't use the original developer's identifier under their own certificate,
+so Signulous rewrites it. The two are unrelated apps to iOS: installing a locally-signed debug
+build (`com.example.openring`) alongside the Signulous release is safe and does not touch or
+overwrite the release's data.
+
+For the same reason no test can round-trip the Keychain in CI. `KeychainFailureTests` asserts
+on the status-to-message mapping instead, which is the part that runs unsigned.
 
 **Endpoint date windows are not uniform.** `sleep` and `daily_activity` exclude the
 `end_date` day; `daily_readiness` includes it. `OuraClient.WindowStyle` encodes this. Getting
