@@ -117,7 +117,15 @@ struct ScoreEngine {
         contributors.append(Contributor(
             id: "timing",
             label: "Timing",
-            score: Curve.score(midpointDeviation, [(0, 100), (0.5, 96), (1, 88), (1.5, 76), (2.5, 55), (4, 30), (6, 10)]),
+            // Fitted in September 2026 against 152 paired days (the first export this curve's
+            // real input could be reconstructed from — see CalibrationExport's fixed-3am bug,
+            // documented in CLAUDE.md). The old curve was much too generous near zero
+            // deviation: sleep ran ~2.3 points hot on average, and this curve alone accounts
+            // for essentially all of it. Held-out MAE 3.25 -> 2.19, bias +2.32 -> +0.07, robust
+            // at every one of six chronological splits tested. `trainingFrequency` and
+            // `recoveryIndex` were fitted from the same export and did NOT show a robust
+            // improvement — left unchanged.
+            score: Curve.score(midpointDeviation, [(0, 70), (0.5, 67), (1, 67), (1.5, 66), (2.5, 51), (4, 10), (6, 0)]),
             weight: 0.10,
             detail: "Midpoint \(Format.clockTime(night.midpoint)), \(String(format: "%.1f", midpointDeviation)) h off your usual"
         ))

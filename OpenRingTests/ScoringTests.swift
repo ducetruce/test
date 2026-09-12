@@ -485,7 +485,11 @@ final class HabitualMidpointTests: XCTestCase {
 
         let score = try XCTUnwrap(engine.sleepScore(for: day, in: database))
         let timing = try XCTUnwrap(score.contributors.first { $0.id == "timing" })
-        XCTAssertGreaterThan(timing.score, 90, "a consistent schedule should score well wherever it sits")
+        // 90 pinned the pre-fit curve's ceiling (100 at zero deviation); the fitted curve's
+        // ceiling is 70 (see the comment on this contributor in ScoreEngine.swift). The point
+        // of the test survives a refit: a consistent schedule should still land at or near
+        // whatever the ceiling is, not be punished for being late in absolute terms.
+        XCTAssertGreaterThanOrEqual(timing.score, 65, "a consistent schedule should score near this contributor's ceiling wherever it sits")
     }
 }
 

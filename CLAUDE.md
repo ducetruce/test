@@ -35,15 +35,16 @@ the project if it ever goes stale.
 - `Storage/` — `Database` (in-memory model + per-endpoint sync reports), `SyncEngine`
   (orchestrates a sync, builds the warnings), `LocalStore` (disk), `Keychain`.
 - `Scoring/` — the actual value. Piecewise-linear contributor curves fitted against real days
-  with a chronological train/test split. Activity agreement with Oura is **71.3% of days
-  within 5 points**, measured by rolling origin over six chronological splits of the 142
-  usable paired days in the September 2026 export.
+  with a chronological train/test split. Held-out agreement with Oura, measured by rolling
+  origin over six chronological splits of the September 2026 export (152 sleep, 152 readiness,
+  148 activity paired days): **sleep 93.0% of days within 5 points, readiness 67.7%, activity
+  66.0%.** Sleep's number moved from 86.8% the same week, when `timing`'s curve was refitted —
+  see the hard-won specifics below before touching any of these again; two different curves
+  fitted from the same export in the same sitting landed on opposite verdicts.
 
-  The older figures in this file (sleep 88%, readiness 59%, activity 61%) could not be
-  reproduced from that export — the same measurement puts activity at 66.4% before the
-  September 2026 refit, not 61%. Either the original fit used a differently filtered set or
-  the numbers went stale. Quote the method with the number from now on: a bare percentage
-  here turned out not to be checkable.
+  Older figures in this file (88%/59%/61%, then briefly 71.3% for activity alone) could not be
+  reproduced and are gone. Quote the method with the number from now on — a bare percentage
+  here turned out not to be checkable, twice.
 - `Ring/` — BLE. Reverse-engineered protocol, `tag | length | payload` framing, AES-128-ECB
   nonce challenge, paged `GetEvent` drain.
 - `Views/` — SwiftUI. `Components/Cards.swift` holds the shared card vocabulary.
@@ -135,30 +136,29 @@ iOS rendered half of it black), and the loss of the previous-refresh-token fallb
   *class* of bug elsewhere before trusting a reconstruction — a private helper that reimplements
   something the engine already computes is a fork waiting to diverge silently.
 
-- **Sleep is a validated ~20% MAE win away, but nothing has shipped for it yet.** Fitting
-  `a*mine + b` against `sleep_oura` (using only the exported score columns, unaffected by the
-  bug above) took mean absolute error from 3.16 to 2.54, holding at every one of six
-  chronological splits tested — a real, robust, general overestimate of a few points, not
-  noise. `a` lands near 1.0 and `b` near −4 to −7, i.e. the app is consistently ~5 points too
-  generous. The same affine test on readiness and activity found nothing robust — readiness
-  got slightly worse, activity was unstable across splits — so this is specific to sleep.
+- **`timing`'s curve was refitted in September 2026, against the first export its real input
+  could be reconstructed from, and it closed almost the entire sleep bias.** The suspicion
+  from the affine test below was right: the old curve was far too generous near zero
+  deviation. Held-out MAE 3.25 → 2.19, within-5 86.8% → 93.4%, bias +2.32 → +0.07 — robust at
+  every one of six chronological splits, by a substantial margin each time (+0.78 to +1.07),
+  not the noise-level deltas that sank `trainingFrequency` and `recoveryIndex` in the same
+  round. With bias landing almost exactly at zero, the affine correction below is superseded —
+  there's nothing left for a global shift to buy.
 
-  Not shipped: the likely cause is exactly the contributor whose export was just fixed
-  (`timing`, weight 0.10, directionally consistent with the size of the bias), but that can't
-  be *proven* from data collected under the old bug. Applying a global affine correction now,
-  then later fixing the `timing` curve itself once clean data exists, would double-correct.
-  Get a fresh export first — one build carries this fix, the earlier `trainingFrequency`
-  columns, and the `recoveryIndex` column below, so one `[ipa]` round trip unblocks all three —
-  then fit `timing` directly. If it doesn't close the gap on its own, the affine correction is
-  still there as a fallback, now checkable against clean data.
+  Earlier evidence (kept for the reasoning trail): fitting `a*mine + b` against `sleep_oura`
+  on the pre-fix export — using only the exported score columns, so unaffected by the
+  `midpointDeviationHours` bug above — took MAE from 3.16 to 2.54, holding at every split. The
+  same affine test on readiness and activity found nothing robust, which is why the bias was
+  suspected to be sleep-specific and contributor-specific rather than a general modelling gap.
 
-- `trainingFrequency` (activity) and `recoveryIndex` (readiness) still cannot be fitted from
-  any export taken so far. Both curves have only ever been guesses: `trainingFrequency`
-  counts days whose high+medium activity minutes clear a threshold, and `recoveryIndex` reads
-  where in the night the heart rate bottomed out, and neither input was ever in
-  `CalibrationExport`. The columns are now (`high_activity_min`, `medium_activity_min`,
-  `hr_minimum_position`), but only a build carrying them can produce a CSV that includes them
-  — waits on the same `[ipa]` round trip as the `timing` fix above.
+- `trainingFrequency` (activity) and `recoveryIndex` (readiness) were fitted from the same
+  September 2026 export as `timing` and **did not show a robust improvement** — held-out MAE
+  moved by ±0.03 to ±0.18 depending on the split, sign flipping rather than holding, unlike
+  `timing`'s substantial one-directional gain. Left unchanged. Both curves are still only
+  guesses (`trainingFrequency` counts days whose high+medium activity minutes clear a
+  threshold; `recoveryIndex` reads where in the night the heart rate bottomed out), so this
+  isn't "confirmed fine" — it's "not yet distinguishable from noise at ~150 days." More history
+  is the only lever left for either.
 
   `recoveryTime` (activity) was fitted once, in September 2026, against 142 paired days: the
   well-recovered level moved from 100 to 88. It was backed out again the same day — it raised
