@@ -191,6 +191,32 @@ final class DatabaseTests: XCTestCase {
         XCTAssertEqual(database.mainSleep(on: day)?.totalSleep, 7 * 3600)
         XCTAssertEqual(database.naps(on: day).count, 1)
     }
+
+    /// The day strip used to hardcode 14 days regardless of how much history was actually
+    /// stored, so months of real data were reachable in Settings' record counts but nowhere a
+    /// day could actually be picked from.
+    func testDayStripSpansTheFullSyncedHistoryNotAFixedWindow() {
+        let today = Day(year: 2026, month: 9, day: 11)
+        var database = Database()
+        database.merge(sleep: [
+            Fixtures.night(day: today.adding(days: -180), hours: 7),
+            Fixtures.night(day: today.adding(days: -3), hours: 7)
+        ])
+
+        let days = database.dayStripDays(today: today)
+
+        XCTAssertEqual(days.first, today.adding(days: -180))
+        XCTAssertEqual(days.last, today, "must reach today even though the last synced night was 3 days ago")
+        XCTAssertEqual(days.count, 181)
+    }
+
+    func testDayStripFallsBackToAShortWindowWithNoDataAtAll() {
+        let today = Day(year: 2026, month: 9, day: 11)
+        let days = Database().dayStripDays(today: today)
+
+        XCTAssertEqual(days.count, 14, "a brand-new database should still render more than a single button")
+        XCTAssertEqual(days.last, today)
+    }
 }
 
 /// Pins the snake_case -> camelCase mapping. If Oura renames a field this test fails

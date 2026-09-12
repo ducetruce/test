@@ -12,7 +12,7 @@ struct TodayView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     dashboardHeader
-                    DayStrip(selection: $model.selectedDay, days: model.recentDays(14, endingAt: Day.today))
+                    DayStrip(selection: $model.selectedDay, days: model.allSyncedDays())
 
                     if dayScores.sleep == nil && dayScores.readiness == nil && dayScores.activity == nil {
                         EmptyStateView(
@@ -291,6 +291,10 @@ struct TodayView: View {
 }
 
 /// Horizontally scrolling day selector pinned to the top of Today.
+///
+/// `days` now spans the full synced history rather than a fixed recent window (see
+/// `AppModel.allSyncedDays`), so this can be handed several hundred entries — lazy, not
+/// eager, so scrolling doesn't have to build every button up front.
 struct DayStrip: View {
     @Binding var selection: Day
     var days: [Day]
@@ -298,7 +302,7 @@ struct DayStrip: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                LazyHStack(spacing: 8) {
                     ForEach(days) { day in
                         Button {
                             selection = day

@@ -13,7 +13,7 @@ struct ActivityView: View {
                 VStack(spacing: 16) {
                     DayStrip(
                         selection: Binding(get: { day }, set: { selectedDay = $0 }),
-                        days: model.recentDays(14, endingAt: Day.today)
+                        days: model.allSyncedDays()
                     )
 
                     if let activity = model.database.activityDay(day) {

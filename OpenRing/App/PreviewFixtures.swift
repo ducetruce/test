@@ -9,13 +9,17 @@ import Foundation
 ///
 /// Day `-4` is left with no sleep or activity record on purpose: it is the only way, short of
 /// a real account, to see the app's actual empty states rather than infer them from source.
+///
+/// Spans 46 days, not 14: the day strip used to hardcode a 14-day window regardless of how
+/// much history existed (see `Database.dayStripDays`), and a 14-day fixture can never show
+/// whether that's actually fixed. 46 also gives Trends' 30-day view real width to plot.
 enum PreviewFixtures {
     static var database: Database {
         var db = Database()
         let today = Day.today
         let gapDayOffset = -4
 
-        for offset in -13...0 {
+        for offset in -45...0 {
             let day = today.adding(days: offset)
             guard offset != gapDayOffset else { continue }
 

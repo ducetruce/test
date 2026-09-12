@@ -251,6 +251,14 @@ final class AppModel: ObservableObject {
         return Day.range(from: end.adding(days: -(count - 1)), through: end)
     }
 
+    /// Every day with any synced data — the day strip used to hardcode 14 days regardless of
+    /// how much history was actually stored, so six months of real data was reachable in
+    /// Settings' record counts but nowhere a day could actually be picked from. See
+    /// `Database.dayStripDays` for what "every day" actually means at the edges.
+    func allSyncedDays() -> [Day] {
+        database.dayStripDays(today: .today)
+    }
+
     func trend(_ metric: TrendMetric, days: Int) -> [DayPoint] {
         recentDays(days).compactMap { day in
             guard let value = metric.value(day: day, database: database, scores: scores[day]) else { return nil }

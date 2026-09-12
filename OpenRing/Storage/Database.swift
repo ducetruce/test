@@ -63,6 +63,17 @@ struct Database: Codable {
         return (first, last)
     }
 
+    /// The span a day picker should offer: every day with synced data, through `today` —
+    /// not a fixed recent window regardless of how much history is actually stored. Always
+    /// extends through `today` even when nothing has synced yet today, so a day with no
+    /// record yet stays reachable the same way it always has. Falls back to a short window
+    /// when nothing has synced at all, so a brand-new database still renders more than a
+    /// single button.
+    func dayStripDays(today: Day) -> [Day] {
+        let start = dayRange?.first ?? today.adding(days: -13)
+        return Day.range(from: start, through: today)
+    }
+
     // MARK: - Lookups
 
     /// The main sleep period recorded for `day` — the longest non-nap, ignoring naps.

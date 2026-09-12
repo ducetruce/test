@@ -13,7 +13,7 @@ struct SleepView: View {
                 VStack(spacing: 16) {
                     DayStrip(
                         selection: Binding(get: { day }, set: { selectedDay = $0 }),
-                        days: model.recentDays(14, endingAt: Day.today)
+                        days: model.allSyncedDays()
                     )
 
                     if let night = model.database.mainSleep(on: day) {
